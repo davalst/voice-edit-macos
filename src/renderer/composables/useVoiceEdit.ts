@@ -51,7 +51,7 @@ export function useVoiceEdit() {
       geminiAdapter = new GeminiLiveSDKAdapter({
         apiKey,
         model: 'models/gemini-2.0-flash-exp',
-        responseModalities: ['TEXT', 'AUDIO'], // Enable audio output for natural TTS
+        responseModalities: ['TEXT'], // AUDIO not compatible with responseSchema
         systemInstruction: VOICE_EDIT_SYSTEM_INSTRUCTION,
         responseSchema: VOICE_EDIT_RESPONSE_SCHEMA,
       })
@@ -190,6 +190,15 @@ export function useVoiceEdit() {
   async function startScreenSharing() {
     try {
       console.log('[VoiceEdit] Starting screen sharing...')
+
+      // Check if we're in Electron environment
+      if (typeof navigator.mediaDevices?.getDisplayMedia === 'undefined') {
+        console.warn('[VoiceEdit] Screen sharing not available in this environment')
+        console.warn('[VoiceEdit] This is normal - screen sharing requires Electron desktopCapturer')
+        console.warn('[VoiceEdit] Voice editing will work without screen context')
+        return
+      }
+
       const stream = await screenCapture.start()
 
       // Initialize video frame capturer
@@ -208,7 +217,8 @@ export function useVoiceEdit() {
       isScreenSharing.value = true
       console.log('[VoiceEdit] ✅ Screen sharing active')
     } catch (error: any) {
-      console.error('[VoiceEdit] Screen sharing failed:', error.message)
+      console.warn('[VoiceEdit] Screen sharing not available:', error.message)
+      console.log('[VoiceEdit] Voice editing will work without screen context')
     }
   }
 
