@@ -1,0 +1,64 @@
+/**
+ * Preload Script - Voice Edit
+ *
+ * Exposes safe IPC methods to renderer process via contextBridge.
+ * This maintains security while allowing renderer to communicate with main process.
+ */
+
+import { contextBridge, ipcRenderer } from 'electron'
+
+/**
+ * Exposed API for renderer process
+ */
+const api = {
+  /**
+   * Configuration
+   */
+  getConfig: () => ipcRenderer.invoke('get-config'),
+  saveConfig: (config: any) => ipcRenderer.invoke('save-config', config),
+
+  /**
+   * Recording control
+   */
+  onToggleRecording: (callback: () => void) => {
+    ipcRenderer.on('toggle-recording', callback)
+  },
+  notifyRecordingStarted: () => {
+    ipcRenderer.send('recording-started')
+  },
+  notifyRecordingStopped: () => {
+    ipcRenderer.send('recording-stopped')
+  },
+
+  /**
+   * Clipboard & paste
+   */
+  pasteText: (text: string) => {
+    ipcRenderer.send('paste-text', text)
+  },
+  getClipboard: () => ipcRenderer.invoke('get-clipboard'),
+
+  /**
+   * Notifications
+   */
+  showNotification: (message: string) => {
+    ipcRenderer.send('show-notification', message)
+  },
+
+  /**
+   * Platform info
+   */
+  platform: process.platform,
+  versions: process.versions,
+}
+
+/**
+ * Expose API to renderer via window.electronAPI
+ */
+contextBridge.exposeInMainWorld('electronAPI', api)
+
+/**
+ * TypeScript type definitions for window.electronAPI
+ * Add this to src/renderer/types/electron.d.ts
+ */
+export type ElectronAPI = typeof api

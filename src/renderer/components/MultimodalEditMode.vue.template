@@ -1,0 +1,1480 @@
+<template>
+  <!-- Voice Control Overlay - sits above existing text edit mode -->
+  <v-card class="multimodal-voice-control mb-3" elevation="2">
+    <v-card-text class="pa-3">
+      <!-- Recording Status -->
+      <div class="d-flex align-center justify-space-between mb-2">
+        <div class="d-flex align-center">
+          <v-icon :color="isVoiceEditing ? 'error' : 'grey'" size="small" class="mr-2">fa-solid fa-microphone</v-icon>
+          <span class="text-caption">{{ isVoiceEditing ? 'Recording... speak your edit instruction' : 'Voice edit ready' }}</span>
+        </div>
+        <v-btn icon size="x-small" variant="text" @click="cleanup" title="Close voice mode">
+          <v-icon size="small">fa-solid fa-times</v-icon>
+        </v-btn>
+      </div>
+
+      <!-- Instructions -->
+      <v-alert type="info" variant="tonal" density="compact" class="mb-2">
+        <div class="text-caption">
+          🎤 <strong>Speak your edit, then pause 1 second.</strong> Gemini will update the text below.
+          <span v-if="isScreenSharing"> 📺 Screen shared - highlight text for focused edits.</span>
+          <div v-if="selectedText" class="mt-1">✅ Selected: "{{ selectedText.substring(0, 50) }}..."</div>
+        </div>
+      </v-alert>
+
+      <!-- Processing indicator -->
+      <v-progress-linear v-if="isProcessingResponse" indeterminate color="primary" class="mb-2" />
+
+      <!-- Window Switcher (only show if screen sharing is active) -->
+      <div v-if="isScreenSharing" class="d-flex align-center gap-2 mt-2">
+        <v-btn size="small" variant="outlined" color="primary" @click="switchWindow">
+          <v-icon size="small" class="mr-1">fa-solid fa-desktop</v-icon>
+          Switch Window
+        </v-btn>
+        <span class="text-caption text-grey">Watching: {{ currentWindowName }}</span>
+      </div>
+
+      <!-- Search Results Panel -->
+      <v-card v-if="searchResults.length > 0" class="mt-3" variant="outlined" color="info">
+        <v-card-title class="text-subtitle-2 py-2 d-flex align-center justify-space-between">
+          <span>🔍 Search Results ({{ searchResults.length }})</span>
+          <v-btn icon size="x-small" variant="text" @click="clearSearch">
+            <v-icon size="small">fa-solid fa-times</v-icon>
+          </v-btn>
+        </v-card-title>
+        <v-card-text class="pa-2" style="max-height: 300px; overflow-y: auto">
+          <div
+            v-for="(result, index) in searchResults"
+            :key="index"
+            class="mb-2 pa-2 rounded"
+            style="background: rgba(var(--v-theme-info), 0.1); border-left: 3px solid rgb(var(--v-theme-info))"
+          >
+            <div class="text-caption text-grey mb-1">Match {{ index + 1 }} (position {{ result.start }})</div>
+            <div class="text-body-2">
+              {{ result.before }}<span class="font-weight-bold text-info">{{ result.match }}</span
+              >{{ result.after }}
+            </div>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-card-text>
+  </v-card>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue'
+import { useMultimodalEdit } from '@/composables/useMultimodalEdit'
+import { GeminiLiveSDKAdapter } from '@/services/geminiLiveSDKAdapter'
+import { AudioRecorder } from '@/lib/audio-recorder'
+import { VideoFrameCapturer } from '@/lib/video-frame-capturer'
+import { useScreenCapture } from '@/lib/use-screen-capture'
+import { TTSChunkPlayer } from '@/services/ttsChunking'
+import { apiClient } from '@/services/apiClient'
+
+// Props
+interface Props {
+  originalText: string
+  messageId: number
+  voiceMode?: 'auto' | 'record'
+  editedContent: string // The parent's editable text content
+  workstreamId?: number // For tool calls
+  organizationId?: number // For tool calls
+  userId?: number // For tool calls (owner_id)
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  voiceMode: 'auto',
+})
+
+// Emits
+interface Emits {
+  (e: 'update:editedContent', newText: string): void // Update parent's textarea
+  (e: 'paste-to-selection'): void // Trigger programmatic paste from clipboard
+  (e: 'close'): void // Close voice mode overlay
+  (e: 'show-confirmation-dialog', items: any[]): void // Show confirmation dialog for batch extract
+  (e: 'confirm-save'): void // Trigger save and create in confirmation dialog
+  (e: 'confirm-cancel'): void // Trigger cancel in confirmation dialog
+  (e: 'show-ingest', data: { url: string; instruction: string }): void // Show ingest mode popup
+}
+
+const emit = defineEmits<Emits>()
+
+// State
+const isConnected = ref(false)
+const isScreenSharing = ref(false)
+const isVoiceEditing = ref(false)
+const selectedText = ref('')
+const queryMode = ref<'edit' | 'query'>('edit') // Track if this is an edit or query
+const isProcessingResponse = ref(false) // Prevent duplicate responses
+const isProcessing = ref(false) // Prevent duplicate VAD triggers while waiting for response
+const outputText = ref('') // Temporary buffer for accumulating Gemini's response
+const searchHighlights = ref<Element[]>([]) // Active search highlight elements
+const currentHighlightIndex = ref(0) // Current highlighted match
+const currentWindowName = ref<string>('Ebben App') // Name of currently captured window
+const searchResults = ref<Array<{ start: number; end: number; match: string; before: string; after: string }>>([]) // Search results with context
+
+// Services
+let geminiAdapter: GeminiLiveSDKAdapter | null = null
+let audioRecorder: AudioRecorder | null = null
+let videoFrameCapturer: VideoFrameCapturer | null = null
+let cleanupSelectionListener: (() => void) | null = null
+const screenCapture = useScreenCapture()
+const { activateEditMode, deactivateEditMode } = useMultimodalEdit()
+
+// TTS using existing chunked TTS system
+const ttsPlayer = new TTSChunkPlayer(apiClient)
+
+/**
+ * Highlight all matches of a search query in the document
+ * Searches within selected text if available, otherwise searches whole document
+ */
+function highlightSearchResults(query: string, fuzzy: boolean): number {
+  // Clear previous highlights
+  clearSearchHighlights()
+
+  // Determine search scope: selected text OR whole document
+  const useSelection = selectedText.value && selectedText.value.length > 0
+  const searchText = useSelection ? selectedText.value : document.body.textContent || ''
+
+  console.log('[MultimodalEdit] 🔍 Searching in:', useSelection ? 'selected text' : 'whole document', `(${searchText.length} chars)`)
+
+  const matches: { start: number; end: number; text: string }[] = []
+
+  if (!fuzzy) {
+    // EXACT MATCH: Find all exact occurrences (case-insensitive)
+    const text = searchText
+    const lowerText = text.toLowerCase()
+    const lowerQuery = query.toLowerCase()
+
+    let index = lowerText.indexOf(lowerQuery)
+    while (index !== -1) {
+      matches.push({
+        start: index,
+        end: index + query.length,
+        text: text.substring(index, index + query.length),
+      })
+      index = lowerText.indexOf(lowerQuery, index + 1)
+    }
+
+    // If no matches for numbers, try flexible numeric matching
+    // Example: "75000" or "$75,000" can match "$75,000" in document
+    if (matches.length === 0 && /\d/.test(query)) {
+      console.log('[MultimodalEdit] 💡 No exact match for number, trying flexible search...')
+
+      // Extract just the digits from the query
+      const queryDigits = query.replace(/\D/g, '')
+
+      if (queryDigits.length > 0) {
+        // Build pattern that allows any non-digit characters between digits
+        // For "75000": matches "$75,000" or "75 000" or "75,000" etc.
+        const pattern = queryDigits.split('').join('[^\\d]*')
+        const numberPattern = new RegExp(pattern, 'gi')
+
+        let match
+        while ((match = numberPattern.exec(text)) !== null) {
+          matches.push({
+            start: match.index,
+            end: match.index + match[0].length,
+            text: match[0],
+          })
+        }
+
+        if (matches.length > 0) {
+          console.log('[MultimodalEdit] ✅ Found numeric matches with flexible formatting:', matches.length)
+        }
+      }
+    }
+  } else {
+    // FUZZY MATCH: For now, just do word-boundary matching
+    // TODO: Could enhance with semantic matching via Gemini
+    const text = searchText
+    const words = query.toLowerCase().split(/\s+/)
+    const lowerText = text.toLowerCase()
+
+    // Find paragraphs/sentences containing all query words
+    const sentences = text.split(/[.!?]\s+/)
+    let offset = 0
+
+    sentences.forEach(sentence => {
+      const lowerSentence = sentence.toLowerCase()
+      const containsAllWords = words.every(word => lowerSentence.includes(word))
+
+      if (containsAllWords) {
+        matches.push({
+          start: offset,
+          end: offset + sentence.length,
+          text: sentence,
+        })
+      }
+
+      offset += sentence.length + 2 // +2 for punctuation and space
+    })
+  }
+
+  // Populate search results with context for visual display
+  searchResults.value = matches.map(match => {
+    const contextLength = 40 // Characters before/after match
+    const before = searchText.substring(Math.max(0, match.start - contextLength), match.start)
+    const after = searchText.substring(match.end, Math.min(searchText.length, match.end + contextLength))
+
+    return {
+      start: match.start,
+      end: match.end,
+      match: match.text,
+      before: before.length < contextLength ? before : '...' + before.substring(before.length - contextLength + 3),
+      after: after.length < contextLength ? after : after.substring(0, contextLength - 3) + '...',
+    }
+  })
+
+  console.log('[MultimodalEdit] ✅ Found', matches.length, 'matches for query:', query)
+  console.log('[MultimodalEdit] 📋 Search results panel populated with', searchResults.value.length, 'items')
+
+  return matches.length
+}
+
+/**
+ * Clear search results
+ */
+function clearSearch() {
+  searchResults.value = []
+  console.log('[MultimodalEdit] 🧹 Search results cleared')
+}
+
+/**
+ * Clear all search highlights
+ */
+function clearSearchHighlights() {
+  searchHighlights.value.forEach(mark => {
+    const parent = mark.parentNode
+    if (parent) {
+      // Replace mark with its text content
+      const text = document.createTextNode(mark.textContent || '')
+      parent.replaceChild(text, mark)
+      parent.normalize() // Merge adjacent text nodes
+    }
+  })
+
+  searchHighlights.value = []
+  currentHighlightIndex.value = 0
+}
+
+/**
+ * Speak text using existing TTS system (same voice as normal conversation)
+ * CRITICAL: Pauses microphone during TTS to prevent feedback loop
+ */
+async function speakWithTTS(text: string): Promise<void> {
+  try {
+    console.log('[MultimodalEdit] 🔊 Speaking via TTS:', text.substring(0, 50))
+
+    // CRITICAL FIX: Pause audio recording during TTS to prevent feedback loop
+    const wasRecording = isVoiceEditing.value
+    if (wasRecording && audioRecorder) {
+      console.log('[MultimodalEdit] 🔇 Pausing microphone during TTS to prevent feedback')
+      audioRecorder.stop()
+      audioRecorder = null
+      isVoiceEditing.value = false
+    }
+
+    await ttsPlayer.playChunked(text)
+    console.log('[MultimodalEdit] 🔊 TTS finished')
+
+    // Resume audio recording after TTS
+    if (wasRecording) {
+      console.log('[MultimodalEdit] 🎤 Resuming microphone after TTS')
+      await startVoiceEdit()
+      // Reset VAD to prevent immediate triggering from background noise
+      resetVADState()
+    }
+  } catch (error: any) {
+    console.error('[MultimodalEdit] TTS failed:', error)
+    throw error
+  }
+}
+
+/**
+ * Execute tool call via API
+ */
+async function executeToolCall(tool: string, parameters: any): Promise<string> {
+  try {
+    console.log('[MultimodalEdit] 🔧 Executing tool:', tool, 'with parameters:', parameters)
+
+    if (!props.workstreamId || !props.userId) {
+      throw new Error('Workstream ID and User ID required for tool calls')
+    }
+
+    let response
+    const { title, priority, status, targetDate } = parameters
+
+    switch (tool) {
+      case 'create_action':
+        response = await apiClient.post(`/api/actions/`, {
+          title,
+          workstream_id: props.workstreamId,
+          owner_id: props.userId,
+          priority: (priority || 'medium').toLowerCase(),
+          status: status || 'NOT_STARTED',
+          due_date: targetDate,
+        })
+        return `I've added "${title}" as an action${priority ? ` with ${priority.toLowerCase()} priority` : ''}`
+
+      case 'create_obstacle':
+        response = await apiClient.post(`/api/obstacles/`, {
+          title,
+          workstream_id: props.workstreamId,
+          owner_id: props.userId,
+          priority: (priority || 'medium').toLowerCase(),
+          status: status || 'open',
+        })
+        return `I've added "${title}" as an obstacle${priority ? ` with ${priority.toLowerCase()} priority` : ''}`
+
+      case 'create_workstream':
+        response = await apiClient.post(`/api/orgs/${props.organizationId}/workstreams/`, {
+          organizationId: props.organizationId,
+          name: title,
+          isActive: true,
+          isPrivate: false,
+          parentWorkstreamId: props.workstreamId, // Create as child of current workstream
+        })
+        return `I've created workstream "${title}"`
+
+      case 'add_team_member': {
+        // Extract name/email and role from parameters
+        const { name, email, role = 'member' } = parameters
+        const nameOrEmail = name || email || title
+
+        if (!nameOrEmail) {
+          throw new Error('Name or email is required to add a team member')
+        }
+
+        // Step 1: Search for user by name/email
+        const searchResponse = await apiClient.get(`/api/team-members/search/${encodeURIComponent(nameOrEmail)}`, { params: { limit: 1 } })
+        const users = searchResponse.data
+
+        if (!users || users.length === 0) {
+          throw new Error(`User "${nameOrEmail}" not found`)
+        }
+
+        const foundUser = users[0]
+
+        // Step 2: Add user to workstream
+        await apiClient.post(`/api/orgs/${props.organizationId}/workstreams/${props.workstreamId}/members`, {
+          organizationId: props.organizationId,
+          workstreamId: props.workstreamId,
+          userId: foundUser.id,
+          role: role.toLowerCase(),
+        })
+
+        return `I've added ${foundUser.displayName || nameOrEmail} to the workstream as ${role}`
+      }
+
+      case 'create_team_member': {
+        // ⚠️ STUB/MOCK IMPLEMENTATION ONLY - NOT CONNECTED TO DATABASE ⚠️
+        // TODO: Wire up to backend API when user creation endpoint is implemented
+        //
+        // Purpose: This is a demo-only stub to allow extraction of team member information
+        // from documents (like org charts) without requiring users to exist in the database.
+        //
+        // When implementing the real version:
+        // 1. Create POST /api/users endpoint to create new users in Firebase + database
+        // 2. Add user to organization membership
+        // 3. Optionally add to current workstream
+        // 4. Return the created user object
+        //
+        // For now: Just pretend to create the user and log for demo purposes
+
+        const { name, email, title, reports_to } = parameters
+        const personName = name
+
+        if (!personName) {
+          throw new Error('Name is required to create a team member')
+        }
+
+        // Log the extraction for demo purposes (visible in browser console)
+        console.log('[MultimodalEdit] 🎭 MOCK CREATE_TEAM_MEMBER (stub only - not saved to database):', {
+          name: personName,
+          email: email || 'no-email-provided',
+          title: title || 'no-title-provided',
+          reports_to: reports_to || 'no-manager-specified',
+          timestamp: new Date().toISOString(),
+        })
+
+        // Simulate successful creation without any API calls
+        const titleStr = title ? ` (${title})` : ''
+        const reportsStr = reports_to ? ` reporting to ${reports_to}` : ''
+        return `I've recorded ${personName}${titleStr}${reportsStr}`
+      }
+
+      case 'create_goal':
+      case 'update_goal':
+      case 'set_goal': {
+        // Goal is stored in workstream's "purpose" field
+        const goalText = title || parameters.goal || parameters.purpose
+
+        if (!goalText) {
+          throw new Error('Goal text is required')
+        }
+
+        // Update workstream purpose using the updateWorkstream method
+        await apiClient.updateWorkstream(props.organizationId, props.workstreamId.toString(), {
+          purpose: goalText,
+        })
+
+        return `I've ${tool === 'create_goal' ? 'set' : 'updated'} the goal to "${goalText}"`
+      }
+
+      default:
+        throw new Error(`Unknown tool: ${tool}`)
+    }
+  } catch (error: any) {
+    console.error('[MultimodalEdit] Tool execution failed:', error)
+    return `Sorry, I couldn't ${tool.replace('create_', 'create ')}: ${error.message}`
+  }
+}
+
+// Removed: copyOutputToClipboard, regenerateResponse, saveAndClose, copyToClipboard
+// These are no longer needed - parent handles save/cancel
+
+/**
+ * Connect to Gemini Live API with structured JSON output
+ */
+async function connectToGemini() {
+  try {
+    console.log('[MultimodalEdit] Connecting to Gemini Live API...')
+
+    // Define JSON schema for structured output
+    const responseSchema = {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['edit', 'query', 'tool_call', 'insert_styled', 'batch_extract', 'search', 'confirm_save', 'confirm_cancel', 'open_browser'],
+          description:
+            'Whether this is an edit operation, query for information, tool call, style-matched insertion, batch extraction of multiple items, search/find operation, confirm save (for "save and create" in confirmation dialog), confirm cancel (for "cancel" in confirmation dialog), or open_browser (open empty browser window popup for viewing URLs/files)',
+        },
+        result: {
+          type: 'string',
+          description:
+            'For edit: the edited text only. For query: the answer only. For tool_call: confirmation message. For insert_styled: the generated text matching surrounding style. For search: the search query.',
+        },
+        searchQuery: {
+          type: 'string',
+          description: 'For search: the term or concept to find',
+        },
+        searchType: {
+          type: 'string',
+          enum: ['exact', 'fuzzy'],
+          description: 'For search: exact match or fuzzy/semantic match',
+        },
+        analysis: {
+          type: 'string',
+          description: 'For insert_styled: brief style analysis notes (optional)',
+        },
+        items: {
+          type: 'array',
+          description: 'For batch_extract: array of tool calls to execute',
+          items: {
+            type: 'object',
+            properties: {
+              tool: {
+                type: 'string',
+                enum: ['create_action', 'create_obstacle', 'create_goal'],
+              },
+              parameters: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string' },
+                  priority: { type: 'string', enum: ['URGENT', 'HIGH', 'MEDIUM', 'LOW'] },
+                  status: { type: 'string' },
+                  targetDate: { type: 'string' },
+                },
+              },
+            },
+            required: ['tool', 'parameters'],
+          },
+        },
+        tool: {
+          type: 'string',
+          enum: ['create_action', 'create_obstacle', 'create_workstream', 'add_team_member', 'create_goal', 'update_goal', 'set_goal'],
+          description: 'For tool_call: which tool to execute',
+        },
+        parameters: {
+          type: 'object',
+          description: 'For tool_call: tool parameters extracted from voice command',
+          properties: {
+            title: { type: 'string' },
+            name: { type: 'string', description: 'For add_team_member: person name' },
+            email: { type: 'string', description: 'For add_team_member: person email' },
+            role: { type: 'string', description: 'For add_team_member: role (member/admin)', enum: ['member', 'admin'] },
+            priority: { type: 'string', enum: ['URGENT', 'HIGH', 'MEDIUM', 'LOW'] },
+            status: { type: 'string' },
+            targetDate: { type: 'string' },
+          },
+        },
+        focusText: {
+          type: 'string',
+          description: 'The text that was focused on (highlighted or cursor hover)',
+        },
+        requiresConfirmation: {
+          type: 'boolean',
+          description:
+            'For batch_extract ONLY: true if user said "with confirmation" in the extract command, false otherwise. This field is IGNORED for all other action types (edit, query, tool_call, insert_styled, search).',
+        },
+      },
+      required: ['action'],
+    }
+
+    geminiAdapter = new GeminiLiveSDKAdapter({
+      apiKey: import.meta.env.VITE_GEMINI_API_KEY,
+      model: 'models/gemini-2.0-flash-exp',
+      responseModalities: ['TEXT'],
+      systemInstruction: `You are a text editing, query, and task management assistant. You receive:
+1. Audio of a voice command
+2. Screen video at 1 FPS showing highlighted text (if enabled)
+3. A text message starting with "Focus text:" containing the EXACT text the user wants you to work on
+
+**CRITICAL: ALWAYS respond in English ONLY. Never use Japanese, Chinese, or any other language in your responses.**
+
+Your job: Determine if the voice command is an EDIT, QUERY, TOOL_CALL, INSERT_STYLED, BATCH_EXTRACT, SEARCH, CONFIRM_SAVE, CONFIRM_CANCEL, or OPEN_BROWSER.
+
+**EDIT examples:** "make this shorter", "rewrite this", "change X to Y", "translate this to Japanese", "translate this to Spanish", "convert this to French", "delete this word", "remove this sentence"
+**QUERY examples:** "what does this mean?", "define this word", "explain this concept", "what is this about?"
+**INSERT_STYLED examples:** "insert a paragraph about X", "add a sentence here about Y", "write a new section on Z"
+**BATCH_EXTRACT examples:** "extract all action items from this paragraph", "find all obstacles in this text", "pull out all the tasks mentioned here"
+**CRITICAL: BATCH_EXTRACT means extract the ACTUAL ITEM OBJECTS, not just identify item types!**
+**SEARCH examples:** "find all mentions of AI", "search for project deadline", "highlight the word methodology"
+**OPEN_BROWSER examples:**
+  - "open browser" → action: open_browser (opens empty browser window popup)
+  - "open browser window" → action: open_browser (opens empty browser window popup)
+  - "open window" → action: open_browser (opens empty browser window popup)
+  - After popup opens, user can manually enter URL or drag-drop files. They can then see content in screen video and use normal commands like "extract all goals", "summarize this", "translate this", etc.
+**TOOL_CALL examples:**
+  - "create action review the proposal" → tool: create_action, parameters: {title: "review the proposal"}
+  - "add obstacle waiting for approval" → tool: create_obstacle, parameters: {title: "waiting for approval"}
+  - "add urgent action fix the bug" → tool: create_action, parameters: {title: "fix the bug", priority: "URGENT"}
+  - "create workstream marketing project" → tool: create_workstream, parameters: {title: "marketing project"}
+  - "add Sarah to the team" → tool: add_team_member, parameters: {name: "Sarah"}
+  - "add john@example.com as admin" → tool: add_team_member, parameters: {email: "john@example.com", role: "admin"}
+  - "extract team members" → tool: create_team_member (extract name, title, reports_to from org chart)
+  - Example: {name: "Martin Sullivan", title: "Chairman & CEO", reports_to: "Board of Directors"}
+  - Example: {name: "Chris Dunn", title: "CFO", reports_to: "Martin Sullivan"}
+  - CRITICAL: For org charts, extract reporting relationships from visual hierarchy (who reports to whom)
+  - "set goal to launch by Q3" → tool: create_goal, parameters: {title: "launch by Q3"}
+  - "update goal increase revenue by 20%" → tool: update_goal, parameters: {title: "increase revenue by 20%"}
+
+**🚨 ABSOLUTE RULE: BATCH_EXTRACT REQUIRES THE WORD "EXTRACT" 🚨**
+**YOU MUST HEAR ONE OF THESE VERBS IN THE VOICE COMMAND:**
+- "extract" OR "pull out" OR "find all" OR "create all" OR "add all"
+**WITHOUT ONE OF THESE EXACT WORDS, YOU MUST NOT USE BATCH_EXTRACT!**
+
+**🚨 CRITICAL: NEVER AUTO-EXTRACT JUST BECAUSE ITEMS APPEAR IN FOCUS TEXT 🚨**
+- **ABSOLUTE PROHIBITION:** Even if you see a perfect list of actions/obstacles/goals/workstreams in the Focus text, DO NOT use BATCH_EXTRACT unless the voice command contains an extraction verb
+- **SEEING ITEMS ≠ PERMISSION TO EXTRACT**
+  - If Focus text shows: "## Obstacles\n- Budget constraints\n- Staff shortage\n- Tight deadline"
+  - And voice command is: "reorder this list alphabetically"
+  - YOU MUST: Use EDIT to reorder, NOT BATCH_EXTRACT to create obstacles!
+- **THE FOCUS TEXT IS CONTEXT, NOT A COMMAND**
+  - Focus text might contain items for editing/reformatting/analyzing
+  - Only the VOICE COMMAND tells you what action to take
+  - If voice doesn't say "extract/pull out/find all/create all/add all" → NO BATCH_EXTRACT
+
+**CRITICAL RULES FOR TOOL COMMANDS:**
+- **BATCH_EXTRACT requires TWO things in the voice command:**
+  1. An extraction verb: "extract", "pull out", "find all", "create all", "add all"
+  2. An item type: "actions", "obstacles", "goals", "workstreams"
+- **🚨 BATCH_EXTRACT MUST RETURN ACTUAL ITEM OBJECTS, NOT STRINGS 🚨**
+  - WRONG: {"items": ["obstacles"]} ← This is just a string!
+  - CORRECT: {"items": [{"tool": "create_obstacle", "parameters": {"title": "Need budget approval", "priority": "HIGH"}}]}
+  - You must extract EACH INDIVIDUAL ITEM with its title, priority, and other details from the Focus text
+- **BATCH_EXTRACT optional confirmation:**
+  - If user says "WITH CONFIRMATION" or "with confirmation" in the EXTRACT command, set requiresConfirmation: true
+  - Examples: "extract all actions WITH CONFIRMATION" → requiresConfirmation: true
+  - Examples: "add obstacles with confirmation" → requiresConfirmation: true
+  - Examples: "extract all actions" → requiresConfirmation: false (default)
+  - **CRITICAL: "with confirmation" ONLY applies to BATCH_EXTRACT commands! If user says "edit this and add 'with confirmation'" that is just text editing, NOT a confirmation trigger!**
+- **TOOL_CALL (single item) requires ONE thing:**
+  - Creation verb + item type: "create action", "add obstacle", "set goal"
+- **🚨 CRITICAL: IF THE VOICE COMMAND DOES NOT SAY "EXTRACT" OR "PULL OUT" OR "FIND ALL", DO NOT USE BATCH_EXTRACT! 🚨**
+- **CRITICAL: IF THE VOICE COMMAND IS ABOUT EDITING/FORMATTING (like "reformat", "make this markdown", "convert to"), DO NOT USE BATCH_EXTRACT OR TOOL_CALL - USE EDIT INSTEAD**
+- **CRITICAL: DO NOT analyze the content of the Focus text to decide what items to create. ONLY listen to the voice command to determine what action to take.**
+- **CRITICAL: Even if the Focus text contains headers like "Action Items:" or "Obstacles:", DO NOT extract them unless the voice command explicitly says to extract**
+- Examples of what NOT to do:
+  - User says "reformat this using markdown" → This is EDIT, not BATCH_EXTRACT! Do NOT look at the content and extract items!
+  - User says "make this shorter" → This is EDIT, not BATCH_EXTRACT!
+  - User says "reorder this list alphabetically" + Focus text has obstacles → This is EDIT, not BATCH_EXTRACT!
+  - User says "clean up this text" + Focus text has actions → This is EDIT, not BATCH_EXTRACT!
+  - Random noise/silence + Focus text has items → Do NOT create items! Return result: "I didn't hear a clear command"
+  - User says "find technology" → This is SEARCH, not BATCH_EXTRACT
+**🚨 CRITICAL: BATCH_EXTRACT MUST ONLY EXTRACT THE SPECIFIC ITEM TYPE REQUESTED 🚨**
+- **If user says "extract actions" → ONLY create_action tools, NO obstacles/goals/workstreams**
+- **If user says "extract obstacles" → ONLY create_obstacle tools, NO actions/goals/workstreams**
+- **If user says "extract goals" → ONLY create_goal tools, NO actions/obstacles/workstreams**
+- **NEVER extract multiple types unless user explicitly says "extract all actions, obstacles, and goals"**
+- **THE VOICE COMMAND SPECIFIES WHICH TYPE TO EXTRACT - ONLY EXTRACT THAT TYPE!**
+
+**🚨 REAL EXAMPLE OF WHAT NOT TO DO 🚨**
+- **WRONG SCENARIO (NEVER DO THIS):**
+  - Focus text contains both obstacles AND actions in a list
+  - User says: "reorder these obstacles alphabetically"
+  - ❌ WRONG: Using EDIT to reorder obstacles, then also using BATCH_EXTRACT to create the actions you see in the text
+  - ✅ CORRECT: Using ONLY EDIT to reorder obstacles. DO NOT EXTRACT ACTIONS just because you see them!
+- **THE RULE: If the voice command is about editing obstacles, DO NOT extract actions. If editing actions, DO NOT extract obstacles.**
+- **BATCH_EXTRACT is ONLY allowed when the voice command EXPLICITLY says "extract" + item type**
+
+- Examples of correct BATCH_EXTRACT (with FULL response format):
+  - User says "extract all actions from this text" → {
+      "action": "batch_extract",
+      "items": [
+        {"tool": "create_action", "parameters": {"title": "Review the proposal", "priority": "HIGH"}},
+        {"tool": "create_action", "parameters": {"title": "Schedule team meeting"}}
+      ]
+    }
+    ❌ WRONG: Including obstacles or goals when user only said "actions"
+  - User says "pull out the obstacles" → {
+      "action": "batch_extract",
+      "items": [
+        {"tool": "create_obstacle", "parameters": {"title": "Waiting for budget approval", "priority": "URGENT"}},
+        {"tool": "create_obstacle", "parameters": {"title": "Team is at capacity"}}
+      ]
+    }
+    ❌ WRONG: Including actions or goals when user only said "obstacles"
+- Examples of correct TOOL_CALL:
+  - User says "create action review the proposal" → OK to use TOOL_CALL
+  - User says "add obstacle waiting for approval" → OK to use TOOL_CALL
+
+**🚨 ABSOLUTE RULE FOR INSERT_STYLED 🚨**
+**INSERT_STYLED MUST ONLY GENERATE TEXT - NEVER ANALYZE CONTENT FOR ITEMS**
+- **CRITICAL: When using INSERT_STYLED, generate ONLY the text requested in the voice command**
+- **CRITICAL: DO NOT look at the Focus text content and decide to extract actions/obstacles/goals**
+- **CRITICAL: Even if the generated text mentions actions or obstacles, DO NOT follow up with BATCH_EXTRACT**
+- **CRITICAL: INSERT_STYLED is for TEXT GENERATION ONLY - not for item creation**
+- After INSERT_STYLED completes, you MUST wait for the next voice command. DO NOT automatically follow with BATCH_EXTRACT.
+- Examples of correct INSERT_STYLED usage:
+  - User says "insert a paragraph about innovation" → Generate text about innovation, that's ALL
+  - User says "add a section on challenges" → Generate text about challenges, DO NOT create obstacle items
+  - User says "write about the team's goals" → Generate text about goals, DO NOT create goal items
+
+**CRITICAL RULES:**
+- ALWAYS use English for JSON field values (result, analysis, etc.) UNLESS the user explicitly asks to translate TO another language (e.g., "translate this to Japanese" means result should contain Japanese text)
+- **ACTIONS REQUIRING TEXT CONTEXT:**
+  - EDIT, BATCH_EXTRACT, SEARCH: Require highlighted text in "Focus text:" field
+  - QUERY: Can work with EITHER highlighted text OR screen video showing cursor hovering over text. Use the Focus text if available, otherwise use text visible under cursor in the video.
+  - INSERT_STYLED: Uses Focus text (surrounding context where cursor is) to match writing style. Works with cursor position + screen video to see context.
+  - If Focus text is empty/generic for these actions, return result: "Please highlight some text first" (except INSERT_STYLED and QUERY which can use screen video)
+- **ACTIONS NOT REQUIRING TEXT:** TOOL_CALL can work from voice alone (e.g., "create action review proposal" doesn't need highlighted text)
+- The "Focus text:" message contains the EXACT text to work on for EDIT/BATCH_EXTRACT/SEARCH. For QUERY and INSERT_STYLED, use Focus text if available, otherwise look at the screen video to see cursor context.
+- **CRITICAL: ALWAYS return valid JSON matching the responseSchema. NEVER return plain text, NEVER return explanations, NEVER return conversational responses.**
+- **CRITICAL: Your response MUST start with { and end with }. Wrap in markdown code fences if needed: \`\`\`json\\n{...}\\n\`\`\`**
+- Return ONLY a JSON object with action and appropriate fields
+- For EDIT: result contains ONLY the edited version of the "Focus text:" (no extra words). For translation requests, the result should contain the translated text.
+  - **🚨 CRITICAL: EDITING MUST BE DETERMINISTIC AND PRESERVE EXACT CONTENT 🚨**
+  - **When reordering/sorting:** Keep the EXACT same text, only change the order. DO NOT rewrite, rephrase, or modify the content in any way.
+  - **When reformatting:** Keep the EXACT same words, only change formatting (markdown, capitalization, etc.). DO NOT change the meaning or wording.
+  - **Example - CORRECT reordering:**
+    - Input: "- Zebra\n- Apple\n- Banana"
+    - Output: "- Apple\n- Banana\n- Zebra" (same exact text, just reordered)
+  - **Example - WRONG reordering:**
+    - Input: "- Zebra\n- Apple\n- Banana"
+    - Output: "- Fresh Apple\n- Ripe Banana\n- Striped Zebra" (❌ NEVER add/change words!)
+  - **If you cannot preserve exact content, return an error** instead of inventing new content
+- For QUERY: result contains ONLY the answer to the question in English (no "here's the definition:")
+- For INSERT_STYLED: analyze the Focus text's writing style (tone, complexity, vocabulary) and generate NEW content matching that style. result contains ONLY the new text to insert. analysis contains brief style notes. **CRITICAL: DO NOT analyze the content to extract actions/obstacles/goals - ONLY generate the requested text insertion based on the voice command.**
+- For BATCH_EXTRACT: **ONLY extract if the Focus text contains actual content to extract**. Return items array with tool calls. IMPORTANT: When speaking confirmation, say the TYPE of items created (e.g., "Created 3 actions", "Created 2 obstacles", "Created 1 goal") NOT just "items".
+- For SEARCH: extract the search term from voice command. searchQuery contains the term/concept to find. searchType is 'exact' for literal matches or 'fuzzy' for semantic/concept matches. result contains the search query.
+- For TOOL_CALL: extract tool type and parameters from voice command, result contains confirmation message like "I've added 'review the proposal' as an action"
+- **Team Member Tools - IMPORTANT DISTINCTION:**
+  - **add_team_member**: Use when adding an EXISTING user (already in database) to the current workstream. User must exist first.
+  - **create_team_member**: Use when extracting/recording team member information from documents (like org charts). This is a stub tool for demo purposes - does NOT create actual users in database, just logs the info.
+  - When extracting team members from documents/images, ALWAYS use create_team_member, NOT add_team_member.
+- **For OPEN_BROWSER: Use when user says "open browser", "open browser window", or "open window" to view external content**
+  - result: "Opening browser window" (brief confirmation message)
+  - This opens an empty popup where user can manually enter URL or drag-drop files. User can then see the content in screen video and use normal voice commands like "extract all goals", "summarize this", "translate this", etc.
+- **For CONFIRM_SAVE: Use when user says "save and create", "save", "create these", "create them", or "confirm" while reviewing a batch extract confirmation dialog**
+  - result: "Saving items" (brief confirmation message)
+  - This triggers the frontend to create all items in the confirmation dialog
+- **For CONFIRM_CANCEL: Use when user says "cancel" while reviewing a batch extract confirmation dialog**
+  - result: "Cancelled" (brief confirmation message)
+  - This triggers the frontend to cancel and close the confirmation dialog
+- Extract priority from voice command if mentioned (urgent/high/medium/low)
+- NEVER ask "please provide the text" - the Focus text IS the text
+- NEVER say "I need to see" - you CAN see it in the Focus text
+- NO conversational text like "There is no action to take", NO "certainly", NO "here are", NO questions back, NO explanations
+- If you don't understand the command, return {"action": "QUERY", "result": "I didn't understand that command"}
+- Execute immediately - don't ask for clarification - just return JSON`,
+      responseSchema,
+    })
+
+    // Setup event listeners
+    geminiAdapter.on('setupComplete', () => {
+      console.log('[MultimodalEdit] ✅ Connected to Gemini')
+      isConnected.value = true
+      // Auto-start voice editing after connection
+      startVoiceEdit()
+    })
+
+    // Track if this is a new response
+    let isNewResponse = true
+
+    geminiAdapter.on('modelTurn', (parts: any[]) => {
+      // Clear output on first chunk of new response
+      if (isNewResponse) {
+        outputText.value = ''
+        isNewResponse = false
+      }
+
+      for (const part of parts) {
+        if (part.text) {
+          outputText.value += part.text
+        }
+      }
+    })
+
+    geminiAdapter.on('turnComplete', async () => {
+      console.log('[MultimodalEdit] ✅ Gemini finished response')
+
+      // Reset for next response
+      isNewResponse = true
+
+      // Prevent duplicate processing
+      if (isProcessingResponse.value) {
+        console.log('[MultimodalEdit] ⚠️ Already processing a response, skipping')
+        return
+      }
+
+      isProcessingResponse.value = true
+
+      // Parse JSON response (strip markdown code fences if present)
+      try {
+        let jsonText = outputText.value.trim()
+
+        // Remove markdown code fences: ```json ... ```
+        if (jsonText.startsWith('```')) {
+          // Extract content between code fences
+          const match = jsonText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/)
+          if (match) {
+            jsonText = match[1].trim()
+          }
+        }
+
+        const jsonResponse = JSON.parse(jsonText)
+        console.log('[MultimodalEdit] 📋 Parsed JSON response:', jsonResponse)
+
+        // Store parsed data
+        queryMode.value = jsonResponse.action.toLowerCase() // 'edit', 'query', or 'tool_call'
+        const result = jsonResponse.result
+
+        // AUTO-APPLY based on mode
+        if (queryMode.value === 'query') {
+          // QUERY MODE: Use TTS to speak the answer (don't update textarea)
+          console.log('[MultimodalEdit] 🔊 Query mode - speaking answer via TTS')
+          await speakWithTTS(result)
+          isProcessingResponse.value = false
+        } else if (queryMode.value === 'insert_styled') {
+          // INSERT_STYLED MODE: Copy to clipboard AND trigger programmatic paste (same as edit)
+          console.log('[MultimodalEdit] ✏️ Insert styled mode - inserting new text:', result.substring(0, 50))
+
+          // Auto-copy to clipboard
+          try {
+            await navigator.clipboard.writeText(result)
+            console.log('[MultimodalEdit] 📋 ✅ Style-matched text copied to clipboard')
+
+            // Trigger programmatic paste to insert at cursor/selection
+            emit('paste-to-selection')
+            console.log('[MultimodalEdit] 🔄 Paste event emitted to parent')
+
+            // Skip TTS for insert_styled - just paste silently
+            // User doesn't need voice feedback for insertion
+            console.log('[MultimodalEdit] 📊 Style analysis:', jsonResponse.analysis)
+          } catch (error) {
+            console.warn('[MultimodalEdit] ⚠️ Failed to auto-copy to clipboard:', error)
+          }
+
+          isProcessingResponse.value = false
+        } else if (queryMode.value === 'batch_extract') {
+          // BATCH_EXTRACT MODE: Execute multiple tool calls in parallel
+          console.log('[MultimodalEdit] 📦 Batch extract mode - processing items:', jsonResponse.items)
+
+          if (!jsonResponse.items || jsonResponse.items.length === 0) {
+            await speakWithTTS('No items found to extract')
+            isProcessingResponse.value = false
+            return
+          }
+
+          // Filter out malformed items (Gemini sometimes returns items without tool/parameters)
+          // CRITICAL: Gemini may return nested structure with 'tool_call' object OR flat structure with direct 'tool'/'tool_name' field
+          const validItems = jsonResponse.items.filter((item: any) => {
+            // Check if item has nested tool_call structure
+            if (item.tool_call) {
+              const toolField = item.tool_call.tool || item.tool_call.tool_name
+              // For create_team_member, 'name' is required instead of 'title'
+              const hasIdentifier = item.tool_call.parameters && (item.tool_call.parameters.title || item.tool_call.parameters.name)
+              const isValid = toolField && hasIdentifier
+              if (!isValid) {
+                console.warn('[MultimodalEdit] ⚠️ Skipping malformed nested item:', item)
+              }
+              return isValid
+            }
+            // Otherwise check flat structure
+            const toolField = item.tool || item.tool_name
+            // For create_team_member, 'name' is required instead of 'title'
+            const hasIdentifier = item.parameters && (item.parameters.title || item.parameters.name)
+            const isValid = item && toolField && hasIdentifier
+            if (!isValid) {
+              console.warn('[MultimodalEdit] ⚠️ Skipping malformed flat item:', item)
+            }
+            return isValid
+          })
+
+          if (validItems.length === 0) {
+            await speakWithTTS('No valid items to extract')
+            isProcessingResponse.value = false
+            return
+          }
+
+          console.log('[MultimodalEdit] ✅ Validated items:', validItems.length, 'of', jsonResponse.items.length)
+
+          // Normalize items to flat structure (handle both nested tool_call and flat structure)
+          const normalizedItems = validItems.map((item: any) => {
+            if (item.tool_call) {
+              // Nested structure: flatten it
+              return {
+                tool: item.tool_call.tool || item.tool_call.tool_name,
+                parameters: item.tool_call.parameters,
+              }
+            }
+            // Already flat structure
+            return {
+              tool: item.tool || item.tool_name,
+              parameters: item.parameters,
+            }
+          })
+
+          // Check if confirmation is required
+          if (jsonResponse.requiresConfirmation === true) {
+            console.log('[MultimodalEdit] 🔔 Confirmation required - emitting event to show dialog')
+            // Emit event with normalized items for confirmation dialog
+            emit('show-confirmation-dialog', normalizedItems)
+            isProcessingResponse.value = false
+            return
+          }
+
+          // Execute all tool calls in parallel
+          const results = await Promise.all(
+            normalizedItems.map((item: any) => {
+              return executeToolCall(item.tool, item.parameters).catch(err => {
+                console.error('[MultimodalEdit] Tool call failed:', err)
+                return `Sorry, failed to create item`
+              })
+            })
+          )
+
+          // Count successes and group by type
+          const successResults = results.filter(r => !r.includes('Sorry'))
+          const failCount = results.length - successResults.length
+
+          // Determine item type from first valid item's tool (assume all same type in one batch)
+          const firstTool = validItems[0]?.tool || validItems[0]?.tool_name || 'create_action'
+          let itemType = 'action'
+          if (firstTool === 'create_obstacle') {
+            itemType = 'obstacle'
+          } else if (firstTool === 'create_goal') {
+            itemType = 'goal'
+          } else if (firstTool === 'create_workstream') {
+            itemType = 'workstream'
+          }
+
+          // Pluralize based on count
+          const pluralType = successResults.length === 1 ? itemType : itemType + 's'
+
+          // Speak summary with specific type
+          let summary = `Created ${successResults.length} ${pluralType}`
+          if (failCount > 0) {
+            summary += `, ${failCount} failed`
+          }
+          console.log('[MultimodalEdit] 🔊 Batch extract complete - speaking summary')
+          await speakWithTTS(summary)
+          isProcessingResponse.value = false
+        } else if (queryMode.value === 'search') {
+          // SEARCH MODE: Highlight all matches in the document
+          const searchQuery = jsonResponse.searchQuery || jsonResponse.result
+          const searchType = jsonResponse.searchType || 'exact'
+          const isFuzzy = searchType === 'fuzzy'
+
+          console.log('[MultimodalEdit] 🔍 Search mode - highlighting:', searchQuery, isFuzzy ? '(fuzzy)' : '(exact)')
+
+          const matchCount = highlightSearchResults(searchQuery, isFuzzy)
+
+          // Speak result
+          if (matchCount > 0) {
+            await speakWithTTS(`Found ${matchCount} ${matchCount === 1 ? 'match' : 'matches'} for ${searchQuery}`)
+          } else {
+            await speakWithTTS(`No matches found for ${searchQuery}`)
+          }
+          isProcessingResponse.value = false
+        } else if (queryMode.value === 'tool_call') {
+          // TOOL_CALL MODE: Execute tool, then speak confirmation
+          // Handle both 'tool' and 'tool_type' field names (Gemini sometimes uses tool_type)
+          const toolName = jsonResponse.tool || jsonResponse.tool_type
+          console.log('[MultimodalEdit] 🔧 Tool call mode - executing:', toolName)
+
+          // Execute the tool call
+          const confirmationMessage = await executeToolCall(toolName, jsonResponse.parameters)
+
+          // Speak the confirmation via TTS
+          console.log('[MultimodalEdit] 🔊 Tool call complete - speaking confirmation')
+          await speakWithTTS(confirmationMessage)
+          isProcessingResponse.value = false
+        } else if (queryMode.value === 'confirm_save') {
+          // CONFIRM_SAVE MODE: Trigger save and create in confirmation dialog
+          // NOTE: Don't speak here - let the handler speak the actual count (e.g., "Created 8 actions")
+          console.log('[MultimodalEdit] ✅ Confirm save - triggering save and create')
+          emit('confirm-save')
+          isProcessingResponse.value = false
+        } else if (queryMode.value === 'confirm_cancel') {
+          // CONFIRM_CANCEL MODE: Trigger cancel in confirmation dialog
+          console.log('[MultimodalEdit] ❌ Confirm cancel - triggering cancel')
+          await speakWithTTS(result || 'Cancelled')
+          emit('confirm-cancel')
+          isProcessingResponse.value = false
+        } else if (queryMode.value === 'open_browser') {
+          // OPEN_BROWSER MODE: Open empty browser window popup (Gemini can see the content via screen sharing)
+          console.log('[MultimodalEdit] 🌐 Open browser mode - opening empty popup')
+          await speakWithTTS(result || 'Opening browser window')
+          emit('show-ingest', {
+            url: '', // Always empty - user enters URL or drags file manually
+            instruction: '', // No longer needed - user will use voice commands after popup opens
+          })
+          isProcessingResponse.value = false
+        } else {
+          // EDIT MODE: Copy to clipboard AND trigger programmatic paste
+          console.log('[MultimodalEdit] ✏️ Edit mode - copying and pasting to selection:', result.substring(0, 50))
+
+          // Auto-copy to clipboard
+          try {
+            await navigator.clipboard.writeText(result)
+            console.log('[MultimodalEdit] 📋 ✅ Edited text copied to clipboard')
+
+            // Trigger programmatic paste to replace selected text (like CMD-V)
+            emit('paste-to-selection')
+            console.log('[MultimodalEdit] 🔄 Paste event emitted to parent')
+          } catch (error) {
+            console.warn('[MultimodalEdit] ⚠️ Failed to auto-copy to clipboard:', error)
+          }
+
+          isProcessingResponse.value = false
+
+          // CRITICAL: Reset isProcessing flag AFTER response is fully processed
+          // Wait a brief moment for clipboard/paste operations to complete
+          setTimeout(() => {
+            isProcessing.value = false
+            console.log('[MultimodalEdit] ✅ Processing complete - ready for next command')
+          }, 100)
+        }
+      } catch (error) {
+        console.warn('[MultimodalEdit] ⚠️ Response is not JSON, using as-is:', error)
+        console.log('[MultimodalEdit] Raw output:', outputText.value)
+        isProcessingResponse.value = false
+        isProcessing.value = false // Reset VAD guard
+        // Keep the raw text if JSON parsing fails
+      }
+    })
+
+    geminiAdapter.on('error', (error: Error) => {
+      console.error('[MultimodalEdit] Error:', error.message)
+    })
+
+    geminiAdapter.on('close', (event: CloseEvent) => {
+      console.log('[MultimodalEdit] Connection closed:', event.code)
+      isConnected.value = false
+    })
+
+    // Connect
+    await geminiAdapter.connect()
+  } catch (error: any) {
+    console.error('[MultimodalEdit] Connection failed:', error.message)
+  }
+}
+
+/**
+ * Try to start screen capture (ask only once)
+ */
+async function tryStartScreenShare() {
+  // Check localStorage to see if user has been prompted before
+  const hasBeenPrompted = localStorage.getItem('multimodal_screen_prompt_shown')
+
+  if (hasBeenPrompted === 'true') {
+    // User has been prompted before - check if they want to share
+    const wantsToShare = localStorage.getItem('multimodal_screen_enabled')
+    if (wantsToShare === 'true') {
+      await startScreenShare()
+    }
+    return
+  }
+
+  // First time - ask user
+  const response = confirm('Would you like to share your screen? This helps Gemini focus on highlighted text.\n\n(This prompt will only show once)')
+  localStorage.setItem('multimodal_screen_prompt_shown', 'true')
+
+  if (response) {
+    localStorage.setItem('multimodal_screen_enabled', 'true')
+    await startScreenShare()
+  } else {
+    localStorage.setItem('multimodal_screen_enabled', 'false')
+  }
+}
+
+/**
+ * Start screen capture
+ */
+async function startScreenShare() {
+  try {
+    console.log('[MultimodalEdit] Starting screen capture...')
+    const stream = await screenCapture.start()
+
+    // Initialize video frame capturer with continuous streaming at 1 FPS
+    videoFrameCapturer = new VideoFrameCapturer(base64Jpeg => {
+      if (geminiAdapter && isScreenSharing.value) {
+        geminiAdapter.sendRealtimeInput({
+          media: {
+            data: base64Jpeg,
+            mimeType: 'image/jpeg',
+          },
+        })
+      }
+    }, 1)
+
+    await videoFrameCapturer.start(stream)
+    isScreenSharing.value = true
+    console.log('[MultimodalEdit] ✅ Screen sharing active')
+  } catch (error: any) {
+    console.error('[MultimodalEdit] Screen share failed:', error.message)
+  }
+}
+
+/**
+ * Switch to a different window for screen capture
+ */
+async function switchWindow() {
+  try {
+    console.log('[MultimodalEdit] Switching window...')
+
+    // Stop current screen capture
+    if (videoFrameCapturer) {
+      videoFrameCapturer.stop()
+      videoFrameCapturer = null
+    }
+    screenCapture.stop()
+
+    // Prompt user to select new window
+    await speakWithTTS('Please select the window you want to share')
+
+    // Use getDisplayMedia to let user pick window
+    const newStream = await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { ideal: 1 }, // 1 FPS
+      },
+    })
+
+    // Update screen capture
+    const track = newStream.getVideoTracks()[0]
+    currentWindowName.value = track.label || 'Selected Window'
+
+    // Initialize new video frame capturer
+    videoFrameCapturer = new VideoFrameCapturer(base64Jpeg => {
+      if (geminiAdapter && isScreenSharing.value) {
+        geminiAdapter.sendRealtimeInput({
+          media: {
+            data: base64Jpeg,
+            mimeType: 'image/jpeg',
+          },
+        })
+      }
+    }, 1)
+
+    await videoFrameCapturer.start(newStream)
+    isScreenSharing.value = true
+
+    await speakWithTTS(`Now watching ${currentWindowName.value}`)
+    console.log('[MultimodalEdit] ✅ Window switched to:', currentWindowName.value)
+
+    // Handle window closing
+    track.addEventListener('ended', () => {
+      speakWithTTS('Window sharing ended. Click Switch Window to select another.')
+      currentWindowName.value = 'None (sharing ended)'
+      isScreenSharing.value = false
+    })
+  } catch (error: any) {
+    console.error('[MultimodalEdit] Window switch failed:', error.message)
+    await speakWithTTS('Could not switch window. Please try again.')
+  }
+}
+
+/**
+ * Stop screen capture
+ */
+function stopScreenShare() {
+  if (videoFrameCapturer) {
+    videoFrameCapturer.stop()
+    videoFrameCapturer = null
+  }
+  screenCapture.stop()
+  isScreenSharing.value = false
+  console.log('[MultimodalEdit] Screen sharing stopped')
+}
+
+/**
+ * Detect if the voice command is a query (asking for information) vs an edit command
+ * Uses speech-to-text transcript analysis
+ */
+function detectQueryIntent(transcript: string): 'edit' | 'query' {
+  const lowerTranscript = transcript.toLowerCase()
+
+  // Query patterns - asking for information, not editing
+  const queryPatterns = [
+    /what (is|does|means?|'s)/,
+    /define/,
+    /definition/,
+    /explain/,
+    /tell me (about|what|why|how)/,
+    /describe/,
+    /meaning of/,
+    /summarize/,
+    /what'?s the/,
+  ]
+
+  // Edit patterns - modifying text
+  const editPatterns = [
+    /rewrite/,
+    /change/,
+    /replace/,
+    /delete/,
+    /remove/,
+    /make it/,
+    /shorter/,
+    /longer/,
+    /more (professional|casual|formal)/,
+    /another way/,
+    /rephrase/,
+  ]
+
+  // Check query patterns first
+  for (const pattern of queryPatterns) {
+    if (pattern.test(lowerTranscript)) {
+      return 'query'
+    }
+  }
+
+  // Check edit patterns
+  for (const pattern of editPatterns) {
+    if (pattern.test(lowerTranscript)) {
+      return 'edit'
+    }
+  }
+
+  // Default to edit if unclear
+  return 'edit'
+}
+
+/**
+ * Listen for text selection changes on the page
+ * CRITICAL: Must work for BOTH main textarea AND confirmation dialog textarea
+ */
+function setupSelectionListener() {
+  const handleSelection = () => {
+    const selection = window.getSelection()
+    if (selection && selection.toString().trim().length > 0) {
+      const newSelection = selection.toString().trim()
+      selectedText.value = newSelection
+
+      // Determine which textarea the selection is in for better logging
+      const activeElement = document.activeElement
+      const isConfirmationDialog = activeElement?.closest('.confirmation-textarea') !== null
+      const isMainTextarea = activeElement?.closest('.edit-mode') !== null
+
+      console.log('[MultimodalEdit] 📝 Text selected:', {
+        source: isConfirmationDialog ? 'confirmation dialog' : isMainTextarea ? 'main textarea' : 'unknown',
+        length: newSelection.length,
+        preview: newSelection.substring(0, 50) + '...',
+      })
+      // DON'T send to Gemini yet - wait for user to speak
+    }
+    // IMPORTANT: Don't clear selectedText.value when selection is empty
+    // The user might have clicked away to speak, but we still want to use their last selection
+  }
+
+  // Listen for selection changes globally - works for all textareas
+  document.addEventListener('selectionchange', handleSelection)
+
+  return () => {
+    document.removeEventListener('selectionchange', handleSelection)
+  }
+}
+
+/**
+ * Reset VAD state to prevent false triggers from background noise
+ */
+function resetVADState() {
+  if (audioRecorder && audioRecorder.vad) {
+    audioRecorder.vad.reset()
+    console.log('[MultimodalEdit] 🔄 VAD state reset')
+  }
+}
+
+/**
+ * Start voice editing (auto-called after connection)
+ */
+async function startVoiceEdit() {
+  try {
+    console.log('[MultimodalEdit] Starting voice recording...')
+    audioRecorder = new AudioRecorder(16000)
+
+    // Listen for audio data - stream continuously
+    audioRecorder.on('data', (base64Audio: string) => {
+      if (geminiAdapter && isVoiceEditing.value) {
+        geminiAdapter.sendRealtimeInput({
+          media: {
+            data: base64Audio,
+            mimeType: 'audio/pcm;rate=16000',
+          },
+        })
+      }
+    })
+
+    // Listen for silence detection - NOW send context + turnComplete together
+    audioRecorder.on('silence', async () => {
+      if (geminiAdapter && isVoiceEditing.value) {
+        // CRITICAL: Check if we're already waiting for a response
+        // This prevents duplicate requests from ambient noise triggering VAD
+        if (isProcessing.value) {
+          console.log('[MultimodalEdit] ⏸️ Already processing a response - ignoring silence trigger')
+          return
+        }
+
+        console.log('[MultimodalEdit] Silence detected - sending context + turnComplete')
+
+        // Mark as processing to prevent duplicate triggers
+        isProcessing.value = true
+
+        // Build MINIMAL context message - system instruction handles the rest
+        const focusedText = selectedText.value || props.originalText
+        const contextMessage = `Focus text: "${focusedText}"`
+
+        // DEBUG: Log what we're sending
+        console.log('[MultimodalEdit] 📤 Sending context:', {
+          hasSelectedText: !!selectedText.value,
+          selectedTextLength: selectedText.value?.length || 0,
+          selectedText: selectedText.value?.substring(0, 100) || '(none)',
+          fallbackToOriginal: !selectedText.value,
+          contextMessage: contextMessage.substring(0, 150),
+        })
+
+        // Send minimal context
+        geminiAdapter.sendClientContent({
+          turns: [{ text: contextMessage }],
+          turnComplete: false,
+        })
+
+        // NOW send turnComplete to trigger response
+        const sent = await geminiAdapter.sendTurnComplete()
+        if (sent) {
+          console.log('[MultimodalEdit] ✅ Context sent, waiting for Gemini response')
+        }
+      }
+    })
+
+    // Start recording
+    await audioRecorder.start()
+    isVoiceEditing.value = true
+    console.log('[MultimodalEdit] ✅ Voice recording active - speak when ready')
+
+    // Setup text selection listener only if not already set up
+    if (!cleanupSelectionListener) {
+      cleanupSelectionListener = setupSelectionListener()
+      console.log('[MultimodalEdit] ✅ Selection listener active')
+    }
+
+    // CRITICAL FIX: Only try screen sharing if not already active
+    // This prevents re-prompting when resuming after TTS in query mode
+    if (!isScreenSharing.value && !videoFrameCapturer) {
+      await tryStartScreenShare()
+    } else {
+      console.log('[MultimodalEdit] ✅ Screen sharing already active - skipping prompt')
+    }
+  } catch (error: any) {
+    console.error('[MultimodalEdit] Voice edit failed:', error.message)
+  }
+}
+
+/**
+ * Stop voice editing
+ */
+function stopVoiceEdit() {
+  if (audioRecorder) {
+    audioRecorder.stop()
+    audioRecorder = null
+  }
+
+  if (geminiAdapter) {
+    geminiAdapter.sendClientContent({
+      turnComplete: true,
+    })
+  }
+
+  isVoiceEditing.value = false
+  console.log('[MultimodalEdit] Voice recording stopped')
+}
+
+/**
+ * Parse Gemini output to remove verbose responses
+ */
+function parseGeminiOutput(output: string): string {
+  let cleaned = output.trim()
+
+  // Remove ALL conversational prefixes (much more aggressive)
+  const conversationalPrefixes = [
+    /^(Certainly|Of course|Sure|Okay|Yes|Alright)[,!.]?\s*/i,
+    /^Here (is|are|'s)\s+(some\s+)?(the\s+)?(alternatives?|options?|ways?|text|paragraph|result)[:\s]*/i,
+    /^(I|You) (could|can|should|would|might)\s+.+?[:\.]/i,
+    /^Can you review\??\s*/i,
+    /^Please (review|check|see)\s+.+?[:\.]/i,
+    /^Let me\s+.+?[:\.]/i,
+    /^How about\s+.+?[:\.]/i,
+    /^What about\s+.+?[:\.]/i,
+    /^Would you like\s+.+?\?/i,
+  ]
+
+  for (const pattern of conversationalPrefixes) {
+    cleaned = cleaned.replace(pattern, '')
+  }
+
+  // Remove numbered/bulleted lists - take ONLY the first item
+  if (/^\s*[\*\-•]\s/.test(cleaned) || /^\s*\d+[.)]\s/.test(cleaned)) {
+    const lines = cleaned.split('\n')
+    const firstItem = lines.find(line => /^\s*[\*\-•\d]/.test(line))
+    if (firstItem) {
+      // Extract just the text after the bullet/number
+      cleaned = firstItem.replace(/^\s*[\*\-•]\s*/, '').replace(/^\s*\d+[.)]\s*/, '')
+    }
+  }
+
+  // Remove trailing questions
+  cleaned = cleaned.replace(/\s*\?\s*$/g, '')
+
+  // Remove extra periods at the start (like "Could. Paragraph.")
+  cleaned = cleaned.replace(/^([A-Z][a-z]*\.\s*)+/, '')
+
+  // Remove any remaining conversational endings
+  cleaned = cleaned.replace(/\s+(Can you review|What do you think|Does this work)\??\.?$/i, '')
+
+  return cleaned.trim()
+}
+
+// Removed: applyChanges, cancelEdit
+// Parent handles save/cancel with existing buttons
+
+/**
+ * Cleanup all resources and close voice mode overlay
+ */
+function cleanup() {
+  console.log('[MultimodalEdit] Cleaning up voice mode...')
+
+  if (audioRecorder) {
+    audioRecorder.stop()
+    audioRecorder = null
+  }
+
+  if (videoFrameCapturer) {
+    videoFrameCapturer.stop()
+    videoFrameCapturer = null
+  }
+
+  // Always call stop() - it checks internally if there's an active stream
+  // The isStreaming property is not reactive, so we can't rely on checking it
+  console.log('[MultimodalEdit] Stopping screen capture...')
+  screenCapture.stop()
+
+  if (cleanupSelectionListener) {
+    cleanupSelectionListener()
+    cleanupSelectionListener = null
+  }
+
+  if (geminiAdapter) {
+    geminiAdapter.disconnect()
+    geminiAdapter = null
+  }
+
+  // Cancel any ongoing TTS
+  if (ttsPlayer && ttsPlayer.isPlaying()) {
+    ttsPlayer.interrupt()
+  }
+
+  // Clear search highlights
+  clearSearchHighlights()
+
+  isVoiceEditing.value = false
+  isScreenSharing.value = false
+  isConnected.value = false
+  selectedText.value = ''
+  isProcessingResponse.value = false
+
+  deactivateEditMode()
+
+  // Tell parent to close the voice overlay
+  emit('close')
+}
+
+// Expose speakWithTTS to parent component for external TTS requests
+defineExpose({
+  speakWithTTS,
+})
+
+/**
+ * Lifecycle hooks
+ */
+onMounted(async () => {
+  console.log('[MultimodalEdit] 🚀 Activating edit mode')
+  await connectToGemini()
+  activateEditMode(props.messageId, props.originalText, props.voiceMode)
+})
+
+onUnmounted(() => {
+  console.log('[MultimodalEdit] Cleaning up...')
+  cleanup()
+})
+</script>
+
+<style scoped>
+.multimodal-edit-mode {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.text-selection-area {
+  font-family: 'Courier New', monospace;
+}
+
+.output-text {
+  white-space: pre-wrap;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.gap-2 {
+  gap: 8px;
+}
+
+/* Search highlighting styles */
+:deep(mark.search-highlight) {
+  background: rgba(255, 255, 0, 0.4);
+  border-radius: 2px;
+  padding: 1px 2px;
+  transition: background 0.2s;
+}
+
+:deep(mark.search-highlight:hover) {
+  background: rgba(255, 255, 0, 0.6);
+}
+</style>
