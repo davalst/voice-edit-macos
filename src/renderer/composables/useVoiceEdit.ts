@@ -147,9 +147,11 @@ export function useVoiceEdit() {
           if (selectedText.value.trim()) {
             // Text is selected - provide it as INPUT to operate on
             contextMessage = `<INPUT>\n${selectedText.value}\n</INPUT>`
+            console.log('[VoiceEdit] 📤 Sending INPUT context:', contextMessage)
           } else {
             // No text selected - dictation mode
             contextMessage = '<DICTATION_MODE>Transcribe the audio exactly as spoken</DICTATION_MODE>'
+            console.log('[VoiceEdit] 📤 Sending DICTATION context')
           }
 
           geminiAdapter.sendClientContent({
