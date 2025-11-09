@@ -30,7 +30,7 @@
     "lint": "eslint src --ext .ts,.tsx,.vue"
   },
   "dependencies": {
-    "@google/genai": "^0.21.0",
+    "@google/genai": "^1.29.0",
     "eventemitter3": "^5.0.1",
     "vue": "^3.4.0",
     "electron-store": "^8.2.0"
