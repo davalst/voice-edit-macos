@@ -51,7 +51,7 @@ export function useVoiceEdit() {
       geminiAdapter = new GeminiLiveSDKAdapter({
         apiKey,
         model: 'models/gemini-2.0-flash-exp',
-        responseModalities: ['TEXT'],
+        responseModalities: ['TEXT', 'AUDIO'], // Enable audio output for natural TTS
         systemInstruction: VOICE_EDIT_SYSTEM_INSTRUCTION,
         responseSchema: VOICE_EDIT_RESPONSE_SCHEMA,
       })
@@ -63,18 +63,28 @@ export function useVoiceEdit() {
       })
 
       let outputText = ''
+      let audioChunks: string[] = []
       geminiAdapter.on('modelTurn', (parts: any[]) => {
         for (const part of parts) {
           if (part.text) {
             outputText += part.text
+          }
+          if (part.inlineData?.mimeType === 'audio/pcm') {
+            // Collect audio chunks for natural TTS playback
+            audioChunks.push(part.inlineData.data)
           }
         }
       })
 
       geminiAdapter.on('turnComplete', async () => {
         console.log('[VoiceEdit] ✅ Gemini finished response')
-        await handleGeminiResponse(outputText)
+
+        // Stop recording after receiving response
+        stopRecording()
+
+        await handleGeminiResponse(outputText, audioChunks)
         outputText = '' // Reset for next response
+        audioChunks = [] // Reset audio chunks
       })
 
       geminiAdapter.on('error', (error: Error) => {
@@ -233,7 +243,7 @@ export function useVoiceEdit() {
   /**
    * Handle Gemini response and execute appropriate action
    */
-  async function handleGeminiResponse(outputText: string) {
+  async function handleGeminiResponse(outputText: string, audioChunks: string[] = []) {
     try {
       // Parse JSON response
       let jsonText = outputText.trim()
@@ -260,8 +270,12 @@ export function useVoiceEdit() {
           break
 
         case 'query':
-          // Speak answer via TTS
-          await speakText(jsonResponse.result)
+          // Speak answer via TTS (use Gemini audio if available, otherwise browser TTS)
+          if (audioChunks.length > 0) {
+            await playGeminiAudio(audioChunks)
+          } else {
+            await speakText(jsonResponse.result)
+          }
           break
 
         case 'insert_styled':
@@ -294,7 +308,50 @@ export function useVoiceEdit() {
   }
 
   /**
-   * Speak text using browser TTS
+   * Play Gemini's natural TTS audio (PCM audio chunks)
+   */
+  async function playGeminiAudio(audioChunks: string[]) {
+    try {
+      console.log('[VoiceEdit] 🔊 Playing Gemini audio:', audioChunks.length, 'chunks')
+
+      // Convert base64 PCM chunks to playable audio
+      const audioContext = new AudioContext({ sampleRate: 24000 })
+
+      for (const base64Audio of audioChunks) {
+        const audioData = Uint8Array.from(atob(base64Audio), c => c.charCodeAt(0))
+        const int16Array = new Int16Array(audioData.buffer)
+
+        // Convert Int16 PCM to Float32 for Web Audio API
+        const float32Array = new Float32Array(int16Array.length)
+        for (let i = 0; i < int16Array.length; i++) {
+          float32Array[i] = int16Array[i] / 32768.0
+        }
+
+        // Create audio buffer
+        const audioBuffer = audioContext.createBuffer(1, float32Array.length, 24000)
+        audioBuffer.copyToChannel(float32Array, 0)
+
+        // Play audio
+        const source = audioContext.createBufferSource()
+        source.buffer = audioBuffer
+        source.connect(audioContext.destination)
+        source.start()
+
+        // Wait for audio to finish
+        await new Promise<void>(resolve => {
+          source.onended = () => resolve()
+        })
+      }
+
+      audioContext.close()
+    } catch (error: any) {
+      console.error('[VoiceEdit] Failed to play Gemini audio:', error.message)
+      console.warn('[VoiceEdit] Falling back to browser TTS')
+    }
+  }
+
+  /**
+   * Speak text using browser TTS (fallback)
    */
   async function speakText(text: string) {
     if ('speechSynthesis' in window) {
@@ -303,7 +360,7 @@ export function useVoiceEdit() {
       utterance.pitch = 1.0
       utterance.volume = 0.8
       window.speechSynthesis.speak(utterance)
-      console.log('[VoiceEdit] 🔊 Speaking:', text)
+      console.log('[VoiceEdit] 🔊 Speaking (browser TTS):', text)
     } else {
       console.warn('[VoiceEdit] Speech synthesis not supported')
     }
