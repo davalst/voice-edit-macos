@@ -276,8 +276,8 @@ export function useVoiceEdit() {
       // Execute action based on type
       switch (jsonResponse.action) {
         case 'edit':
-          // Paste edited text at cursor
-          await pasteText(jsonResponse.result)
+          // Paste edited text at cursor (add space at end for dictation flow)
+          await pasteText(jsonResponse.result + ' ')
           break
 
         case 'query':
@@ -290,8 +290,8 @@ export function useVoiceEdit() {
           break
 
         case 'insert_styled':
-          // Insert generated text at cursor
-          await pasteText(jsonResponse.result)
+          // Insert generated text at cursor (add space at end)
+          await pasteText(jsonResponse.result + ' ')
           console.log('[VoiceEdit] Style analysis:', jsonResponse.analysis)
           break
 
