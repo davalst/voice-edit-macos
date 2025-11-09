@@ -37,6 +37,7 @@ const api = {
     ipcRenderer.send('paste-text', text)
   },
   getClipboard: () => ipcRenderer.invoke('get-clipboard'),
+  getSelectedText: () => ipcRenderer.invoke('get-selected-text'),
 
   /**
    * Notifications

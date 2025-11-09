@@ -241,9 +241,10 @@ export function useVoiceEdit() {
    */
   async function getSelectedTextFromApp(): Promise<string> {
     try {
-      // Use Electron IPC to get selected text via clipboard
-      const clipboard = await electronAPI?.getClipboard()
-      return clipboard || ''
+      // Use Electron IPC to get selected text (uses Cmd+C behind the scenes)
+      const selectedText = await electronAPI?.getSelectedText()
+      console.log('[VoiceEdit] Got selected text:', selectedText?.substring(0, 50) + '...')
+      return selectedText || ''
     } catch (error) {
       console.error('[VoiceEdit] Failed to get selected text:', error)
       return ''

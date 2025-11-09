@@ -13,7 +13,7 @@ import { app, BrowserWindow, globalShortcut, ipcMain, clipboard, Tray, Menu, nat
 import { join } from 'path'
 import Store from 'electron-store'
 import { setupHotkeyManager } from './hotkey-manager'
-import { simulatePaste, copyToClipboard } from './clipboard-manager'
+import { simulatePaste, copyToClipboard, getSelectedText } from './clipboard-manager'
 import { requestPermissions } from './permissions'
 
 // Configuration store
@@ -214,6 +214,14 @@ ipcMain.on('paste-text', (_event, text: string) => {
 // Get clipboard content (for debugging)
 ipcMain.handle('get-clipboard', () => {
   return clipboard.readText()
+})
+
+// Get selected text from active application (uses Cmd+C)
+ipcMain.handle('get-selected-text', async () => {
+  console.log('[Main] Getting selected text from active app...')
+  const selectedText = await getSelectedText()
+  console.log('[Main] Selected text:', selectedText.substring(0, 50) + '...')
+  return selectedText
 })
 
 // Show notification
