@@ -79,7 +79,7 @@ export class TTSChunkPlayer {
         const audioBlob = await nextTTSPromise
 
         // Start generating NEXT sentence WHILE current one plays
-        nextTTSPromise = i < this.state.sentences.length - 1 ? this.generateTTS(this.state.sentences[i + 1]) : Promise.resolve(null)
+        nextTTSPromise = i < this.state.sentences.length - 1 ? this.generateTTS(this.state.sentences[i + 1]) : Promise.resolve(null as any)
 
         // Play current sentence (blocks until finished)
         await this.playSentence(audioBlob)

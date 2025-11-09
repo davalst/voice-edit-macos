@@ -10,7 +10,6 @@ import { globalShortcut } from 'electron'
 type HotkeyCallback = () => void
 
 let currentHotkey: string | null = null
-let currentCallback: HotkeyCallback | null = null
 
 /**
  * Setup global hotkey for voice recording activation
@@ -46,7 +45,6 @@ export function setupHotkeyManager(hotkey: string, callback: HotkeyCallback): bo
 
     if (success) {
       currentHotkey = actualHotkey
-      currentCallback = callback
       console.log('[HotkeyManager] ✅ Hotkey registered successfully:', actualHotkey)
       return true
     } else {
@@ -67,7 +65,6 @@ export function unregisterHotkey(): void {
     globalShortcut.unregister(currentHotkey)
     console.log('[HotkeyManager] Unregistered hotkey:', currentHotkey)
     currentHotkey = null
-    currentCallback = null
   }
 }
 

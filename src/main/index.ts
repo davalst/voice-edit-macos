@@ -64,7 +64,7 @@ function createWindow() {
 
   // Hide window instead of closing on macOS
   mainWindow.on('close', event => {
-    if (!app.isQuitting) {
+    if (!(app as any).isQuitting) {
       event.preventDefault()
       mainWindow?.hide()
     }
@@ -108,7 +108,7 @@ function createTray() {
     {
       label: 'Quit',
       click: () => {
-        app.isQuitting = true
+        (app as any).isQuitting = true
         app.quit()
       },
     },
@@ -178,7 +178,7 @@ ipcMain.handle('get-config', () => {
 })
 
 // Save configuration to store
-ipcMain.handle('save-config', (event, config) => {
+ipcMain.handle('save-config', (_event, config) => {
   Object.entries(config).forEach(([key, value]) => {
     store.set(key, value)
   })
@@ -198,7 +198,7 @@ ipcMain.on('recording-stopped', () => {
 })
 
 // Paste edited text to active app
-ipcMain.on('paste-text', (event, text: string) => {
+ipcMain.on('paste-text', (_event, text: string) => {
   console.log('[Main] Pasting text:', text.substring(0, 50) + '...')
 
   // Copy to clipboard
@@ -217,7 +217,7 @@ ipcMain.handle('get-clipboard', () => {
 })
 
 // Show notification
-ipcMain.on('show-notification', (event, message: string) => {
+ipcMain.on('show-notification', (_event, message: string) => {
   // TODO: Use Electron Notification API
   console.log('[Main] Notification:', message)
 })
@@ -239,7 +239,7 @@ app.on('will-quit', () => {
 })
 
 app.on('before-quit', () => {
-  app.isQuitting = true
+  (app as any).isQuitting = true
 })
 
 /**

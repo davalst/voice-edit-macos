@@ -272,7 +272,7 @@ export class GeminiLiveSDKAdapter extends EventEmitter<GeminiLiveEvents> {
  * Factory function to create adapter with environment API key
  */
 export function createGeminiLiveSDKAdapter(options: Partial<GeminiLiveConfig> = {}): GeminiLiveSDKAdapter {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY
+  const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY
 
   if (!apiKey) {
     throw new Error('VITE_GEMINI_API_KEY not configured in environment')

@@ -6,6 +6,7 @@
 export interface ScreenCaptureResult {
   start: () => Promise<MediaStream>
   stop: () => void
+  setOnStreamEnded: (callback: () => void) => void
   isStreaming: boolean
   stream: MediaStream | null
 }
@@ -82,5 +83,6 @@ export function useScreenCapture(): ScreenCaptureResult {
     stop,
     isStreaming,
     stream,
+    setOnStreamEnded,
   }
 }
