@@ -40,7 +40,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 400,
     height: 600,
-    show: false, // Hidden by default (use tray icon)
+    show: true, // Show window on startup so user can enter API key
     frame: true,
     titleBarStyle: 'hiddenInset',
     webPreferences: {
@@ -50,9 +50,9 @@ function createWindow() {
     },
   })
 
-  // Development mode
-  if (process.env.NODE_ENV === 'development') {
-    mainWindow.loadURL('http://localhost:5173')
+  // Development mode - use Vite dev server
+  if (process.env.VITE_DEV_SERVER_URL) {
+    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
     mainWindow.webContents.openDevTools()
   } else {
     mainWindow.loadFile(join(__dirname, '../../dist/index.html'))
