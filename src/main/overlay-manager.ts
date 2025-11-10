@@ -34,6 +34,16 @@ export class OverlayManager {
       return // Already created
     }
 
+    // During dev hot reload, destroy any existing overlay windows
+    const allWindows = BrowserWindow.getAllWindows()
+    allWindows.forEach(window => {
+      // Check if window looks like an overlay (transparent, always on top, no frame, small size)
+      if (window.isAlwaysOnTop() && !window.isModal() && window.getBounds().width < 300) {
+        console.log('[OverlayManager] Destroying stale overlay window')
+        window.destroy()
+      }
+    })
+
     const primaryDisplay = screen.getPrimaryDisplay()
     const { width, height } = primaryDisplay.workAreaSize
 
@@ -46,7 +56,7 @@ export class OverlayManager {
     const savedY = overlayStore.get('y') as number | null
 
     const defaultX = Math.floor((width - overlayWidth) / 2)
-    const defaultY = height - overlayHeight - 10 // 10px from bottom (very close)
+    const defaultY = height - overlayHeight - 20 // 20px from bottom (user preferred position)
 
     this.overlayWindow = new BrowserWindow({
       width: overlayWidth,
