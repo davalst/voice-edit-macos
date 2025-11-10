@@ -204,26 +204,42 @@ function initializeKeyMonitoring() {
     updateTrayStatus(false)
   })
 
+  // Track previous key state to detect changes
+  let previousFnState = false
+  let previousCtrlState = false
+
   // Wire up key monitor to both state machine and gesture detector
   keyMonitor.on('keyStateChange', (event: { fnPressed: boolean; ctrlPressed: boolean; timestamp: number }) => {
-    // Send to gesture detector for double-tap detection
-    if (event.fnPressed) {
-      gestureDetector?.onKeyPress(event.fnPressed, event.ctrlPressed, event.timestamp)
-    } else {
-      gestureDetector?.onKeyRelease(event.fnPressed, event.ctrlPressed, event.timestamp)
+    console.log('[Main] Key state change:', {
+      fn: event.fnPressed ? 'DOWN' : 'UP',
+      ctrl: event.ctrlPressed ? 'DOWN' : 'UP',
+      timestamp: event.timestamp
+    })
+
+    // Detect Fn key changes
+    if (event.fnPressed !== previousFnState) {
+      if (event.fnPressed) {
+        console.log('[Main] → Fn PRESSED')
+        gestureDetector?.onKeyPress(true, event.ctrlPressed, event.timestamp)
+        stateMachine?.onFnPress(event.timestamp)
+      } else {
+        console.log('[Main] → Fn RELEASED')
+        gestureDetector?.onKeyRelease(false, event.ctrlPressed, event.timestamp)
+        stateMachine?.onFnRelease(event.timestamp)
+      }
+      previousFnState = event.fnPressed
     }
 
-    // Send to state machine for hold detection
-    if (event.fnPressed) {
-      stateMachine?.onFnPress(event.timestamp)
-    } else {
-      stateMachine?.onFnRelease(event.timestamp)
-    }
-
-    if (event.ctrlPressed) {
-      stateMachine?.onCtrlPress(event.timestamp)
-    } else {
-      stateMachine?.onCtrlRelease(event.timestamp)
+    // Detect Ctrl key changes
+    if (event.ctrlPressed !== previousCtrlState) {
+      if (event.ctrlPressed) {
+        console.log('[Main] → Ctrl PRESSED')
+        stateMachine?.onCtrlPress(event.timestamp)
+      } else {
+        console.log('[Main] → Ctrl RELEASED')
+        stateMachine?.onCtrlRelease(event.timestamp)
+      }
+      previousCtrlState = event.ctrlPressed
     }
   })
 
