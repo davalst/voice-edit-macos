@@ -11,7 +11,17 @@
 
 import { BrowserWindow, screen } from 'electron'
 import { join } from 'path'
+import Store from 'electron-store'
 import { RecordingMode } from '../shared/types'
+
+// Store for overlay position
+const overlayStore = new Store({
+  name: 'overlay-position',
+  defaults: {
+    x: null,
+    y: null,
+  },
+})
 
 export class OverlayManager {
   private overlayWindow: BrowserWindow | null = null
@@ -27,20 +37,27 @@ export class OverlayManager {
     const primaryDisplay = screen.getPrimaryDisplay()
     const { width, height } = primaryDisplay.workAreaSize
 
-    // Create overlay window - tiny at bottom center (Wispr style)
-    const overlayWidth = 250
-    const overlayHeight = 80
+    // Wispr-style: Even smaller overlay (25% smaller than before)
+    const overlayWidth = 200
+    const overlayHeight = 60
+
+    // Load saved position or default to bottom center
+    const savedX = overlayStore.get('x') as number | null
+    const savedY = overlayStore.get('y') as number | null
+
+    const defaultX = Math.floor((width - overlayWidth) / 2)
+    const defaultY = height - overlayHeight - 10 // 10px from bottom (very close)
 
     this.overlayWindow = new BrowserWindow({
       width: overlayWidth,
       height: overlayHeight,
-      x: Math.floor((width - overlayWidth) / 2),
-      y: height - overlayHeight - 60, // 60px from bottom
+      x: savedX ?? defaultX,
+      y: savedY ?? defaultY,
       frame: false,
       transparent: true,
       alwaysOnTop: true,
       resizable: false,
-      movable: false,
+      movable: true, // Allow user to drag
       minimizable: false,
       maximizable: false,
       closable: false,
@@ -54,13 +71,24 @@ export class OverlayManager {
       },
     })
 
+    // Save position when moved
+    this.overlayWindow.on('moved', () => {
+      if (this.overlayWindow) {
+        const [x, y] = this.overlayWindow.getPosition()
+        overlayStore.set('x', x)
+        overlayStore.set('y', y)
+        console.log('[OverlayManager] Position saved:', x, y)
+      }
+    })
+
     // Hide initially
     this.overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
     this.overlayWindow.setAlwaysOnTop(true, 'floating', 1)
 
-    // Load overlay HTML
+    // Load overlay HTML (separate file, not main app)
     if (process.env.VITE_DEV_SERVER_URL) {
-      this.overlayWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}#/overlay`)
+      // In dev mode, Vite serves overlay.html at /overlay.html
+      this.overlayWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}/overlay.html`)
     } else {
       this.overlayWindow.loadFile(join(__dirname, '../../dist/overlay.html'))
     }
