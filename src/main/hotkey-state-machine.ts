@@ -61,14 +61,18 @@ export class HotkeyStateMachine extends EventEmitter {
     const holdDuration = timestamp - this.fnPressStartTime
     this.fnPressed = false
 
+    console.log(`[StateMachine] Fn released after ${holdDuration.toFixed(0)}ms, current state: ${this.currentState}`)
+
     // Only stop if we're in a hold mode (not toggle mode)
     if (this.currentState === RecordingMode.STT_ONLY_HOLD) {
-      // Check if it was held long enough to count as intentional recording
-      if (holdDuration >= this.MIN_HOLD_DURATION) {
-        this.transitionTo(RecordingMode.IDLE, 'fn_release', timestamp)
-      }
+      // Always stop when key is released in hold mode
+      this.transitionTo(RecordingMode.IDLE, 'fn_release', timestamp)
     } else if (this.currentState === RecordingMode.STT_SCREEN_HOLD) {
-      if (holdDuration >= this.MIN_HOLD_DURATION && !this.ctrlPressed) {
+      // If Ctrl still pressed, downgrade to STT only
+      if (this.ctrlPressed) {
+        this.transitionTo(RecordingMode.STT_ONLY_HOLD, 'fn_release', timestamp)
+      } else {
+        // Both keys released, stop recording
         this.transitionTo(RecordingMode.IDLE, 'fn_release', timestamp)
       }
     }
@@ -94,14 +98,14 @@ export class HotkeyStateMachine extends EventEmitter {
     const holdDuration = timestamp - this.ctrlPressStartTime
     this.ctrlPressed = false
 
+    console.log(`[StateMachine] Ctrl released after ${holdDuration.toFixed(0)}ms, current state: ${this.currentState}`)
+
     // If in STT+Screen hold mode and Fn still pressed, downgrade to STT only
     if (this.currentState === RecordingMode.STT_SCREEN_HOLD && this.fnPressed) {
       this.transitionTo(RecordingMode.STT_ONLY_HOLD, 'ctrl_release', timestamp)
     } else if (this.currentState === RecordingMode.STT_SCREEN_HOLD && !this.fnPressed) {
-      // Both keys released
-      if (holdDuration >= this.MIN_HOLD_DURATION) {
-        this.transitionTo(RecordingMode.IDLE, 'ctrl_release', timestamp)
-      }
+      // Both keys released, always stop
+      this.transitionTo(RecordingMode.IDLE, 'ctrl_release', timestamp)
     }
   }
 
