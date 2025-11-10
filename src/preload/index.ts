@@ -47,6 +47,13 @@ const api = {
   },
 
   /**
+   * Debug logging
+   */
+  log: (message: string) => {
+    ipcRenderer.send('log', message)
+  },
+
+  /**
    * Platform info
    */
   platform: process.platform,

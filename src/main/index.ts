@@ -230,6 +230,11 @@ ipcMain.on('show-notification', (_event, message: string) => {
   console.log('[Main] Notification:', message)
 })
 
+// Log from renderer (for debugging)
+ipcMain.on('log', (_event, message: string) => {
+  console.log(message)
+})
+
 /**
  * App lifecycle events
  */

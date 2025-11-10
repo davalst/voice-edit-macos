@@ -33,6 +33,7 @@ export class AudioRecorder extends EventEmitter {
 
     // When silence detected, emit 'silence' event
     this.vad.onSilence(() => {
+      console.log('[AudioRecorder] 🔕 VAD triggered silence event - emitting to handler')
       this.emit('silence')
     })
   }

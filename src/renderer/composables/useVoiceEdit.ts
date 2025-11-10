@@ -26,6 +26,7 @@ export function useVoiceEdit() {
   const lastCommand = ref('')
   const lastResult = ref('')
   const selectedText = ref('')
+  const isProcessing = ref(false) // Guard to prevent duplicate processing
 
   // Services
   let geminiAdapter: GeminiLiveSDKAdapter | null = null
@@ -85,6 +86,7 @@ export function useVoiceEdit() {
         await handleGeminiResponse(outputText, audioChunks)
         outputText = '' // Reset for next response
         audioChunks = [] // Reset audio chunks
+        isProcessing.value = false // Reset processing guard
       })
 
       geminiAdapter.on('error', (error: Error) => {
@@ -120,9 +122,17 @@ export function useVoiceEdit() {
     try {
       console.log('[VoiceEdit] Starting voice recording...')
 
+      // CRITICAL: Get selected text FIRST (before recording)
+      // Store it for later use when silence is detected
+      selectedText.value = await getSelectedTextFromApp()
+
+      console.log('[VoiceEdit] 📤 Selected text captured:', selectedText.value?.substring(0, 100) || '(none)')
+      electronAPI?.log?.(`[Renderer] Selected text: "${selectedText.value}"`)
+
+      // Now start audio recording
       audioRecorder = new AudioRecorder(16000)
 
-      // Stream audio to Gemini
+      // Stream audio to Gemini continuously
       audioRecorder.on('data', (base64Audio: string) => {
         if (geminiAdapter && isRecording.value) {
           geminiAdapter.sendRealtimeInput({
@@ -134,33 +144,42 @@ export function useVoiceEdit() {
         }
       })
 
-      // Detect silence → send context + turnComplete
+      // CRITICAL: Silence detection - THEN send context + turnComplete
+      // This matches the working Ebben POC pattern exactly
       audioRecorder.on('silence', async () => {
-        if (geminiAdapter && isRecording.value) {
-          console.log('[VoiceEdit] Silence detected - processing...')
+        if (!geminiAdapter || !isRecording.value) return
 
-          // Get selected text from active app
-          selectedText.value = await getSelectedTextFromApp()
+        // Guard: Prevent duplicate processing
+        if (isProcessing.value) {
+          console.log('[VoiceEdit] Already processing - ignoring silence')
+          return
+        }
 
-          // Send context with clear structure
-          let contextMessage = ''
-          if (selectedText.value.trim()) {
-            // Text is selected - provide it as INPUT to operate on
-            contextMessage = `<INPUT>\n${selectedText.value}\n</INPUT>`
-            console.log('[VoiceEdit] 📤 Sending INPUT context:', contextMessage)
-          } else {
-            // No text selected - dictation mode
-            contextMessage = '<DICTATION_MODE>Transcribe the audio exactly as spoken</DICTATION_MODE>'
-            console.log('[VoiceEdit] 📤 Sending DICTATION context')
-          }
+        isProcessing.value = true
+        console.log('[VoiceEdit] 🔕 Silence detected - sending context + turnComplete')
+        electronAPI?.log?.(`[Renderer] Silence detected - sending context + turnComplete`)
 
+        try {
+          // Build MINIMAL context message (exactly like Ebben POC)
+          const contextMessage = `Focus text: "${selectedText.value}"`
+
+          console.log('[VoiceEdit] 📤 Sending context:', contextMessage.substring(0, 150))
+          electronAPI?.log?.(`[Renderer] Context: "${contextMessage.substring(0, 150)}"`)
+
+          // Send context with turnComplete: false (don't trigger response yet)
           geminiAdapter.sendClientContent({
             turns: [{ text: contextMessage }],
             turnComplete: false,
           })
 
-          // Send turnComplete to trigger response
-          await geminiAdapter.sendTurnComplete()
+          // NOW send turnComplete to trigger Gemini response
+          const sent = await geminiAdapter.sendTurnComplete()
+          if (sent) {
+            console.log('[VoiceEdit] ✅ Context sent, waiting for Gemini response')
+          }
+        } catch (error) {
+          console.error('[VoiceEdit] Error sending context/turnComplete:', error)
+          isProcessing.value = false
         }
       })
 
@@ -170,10 +189,10 @@ export function useVoiceEdit() {
       // Notify main process
       electronAPI?.notifyRecordingStarted()
 
-      console.log('[VoiceEdit] ✅ Recording started')
+      console.log('[VoiceEdit] ✅ Recording started - speak when ready')
     } catch (error: any) {
       console.error('[VoiceEdit] Failed to start recording:', error.message)
-      isRecording.value = false
+      isProcessing.value = false
     }
   }
 

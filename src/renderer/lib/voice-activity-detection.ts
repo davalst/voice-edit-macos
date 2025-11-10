@@ -57,6 +57,11 @@ export class VoiceActivityDetector {
     // Calculate average energy
     const avgEnergy = this.energyHistory.reduce((a, b) => a + b, 0) / this.energyHistory.length
 
+    // DEBUG: Log every 50 samples to see if VAD is receiving data
+    if (this.energyHistory.length % 50 === 0) {
+      console.log(`[VAD] 🎤 Energy: ${avgEnergy.toFixed(4)}, Threshold: ${this.silenceThreshold}, Speaking: ${this.wasSpeaking}`)
+    }
+
     // Determine if speech or silence
     const isSpeech = avgEnergy > this.silenceThreshold
 
@@ -112,7 +117,10 @@ export class VoiceActivityDetector {
           `[VAD] ✅ Strong speech detected (${Math.round(this.totalSpeechDuration)}ms, peak: ${this.peakEnergyDuringSpeech.toFixed(3)}) - triggering callback`
         )
         if (this.onSilenceCallback) {
+          console.log('[VAD] 🔔 Calling onSilence callback NOW')
           this.onSilenceCallback()
+        } else {
+          console.error('[VAD] ❌ onSilenceCallback is NULL - callback was never registered!')
         }
       } else if (this.wasSpeaking && this.totalSpeechDuration < this.minSpeechDuration && silenceDurationMs >= this.silenceDuration) {
         // Speech was too short - ignore it
@@ -126,6 +134,9 @@ export class VoiceActivityDetector {
         this.wasSpeaking = false
         this.totalSpeechDuration = 0
         this.peakEnergyDuringSpeech = 0
+      } else if (this.wasSpeaking && silenceDurationMs < this.silenceDuration) {
+        // Silence duration not long enough yet
+        console.log(`[VAD] ⏳ Silence duration ${silenceDurationMs}ms < ${this.silenceDuration}ms - waiting for longer silence`)
       }
     }
 
