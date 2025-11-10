@@ -61,6 +61,11 @@ export function useVoiceEdit() {
       geminiAdapter.on('setupComplete', () => {
         console.log('[VoiceEdit] ✅ Connected to Gemini')
         isConnected.value = true
+
+        // CRITICAL FIX: Auto-start recording after connection (like Ebben POC)
+        // This ensures the app is ready to receive commands immediately
+        console.log('[VoiceEdit] Auto-starting recording...')
+        startRecording()
       })
 
       let outputText = ''
@@ -80,13 +85,20 @@ export function useVoiceEdit() {
       geminiAdapter.on('turnComplete', async () => {
         console.log('[VoiceEdit] ✅ Gemini finished response')
 
-        // Stop recording after receiving response
-        stopRecording()
+        // CRITICAL FIX: Don't stop recording - keep listening for next command
+        // This matches Ebben POC behavior for continuous conversation
+        // stopRecording() // ← REMOVED
 
         await handleGeminiResponse(outputText, audioChunks)
         outputText = '' // Reset for next response
         audioChunks = [] // Reset audio chunks
-        isProcessing.value = false // Reset processing guard
+
+        // CRITICAL FIX: Add delay before resetting isProcessing (like Ebben POC)
+        // This prevents VAD from triggering too quickly after paste
+        setTimeout(() => {
+          isProcessing.value = false
+          console.log('[VoiceEdit] ✅ Ready for next command')
+        }, 100)
       })
 
       geminiAdapter.on('error', (error: Error) => {
@@ -113,7 +125,7 @@ export function useVoiceEdit() {
   /**
    * Start voice recording
    */
-  async function startRecording() {
+  async function startRecording(preCapturedText?: string) {
     if (!geminiAdapter || !isConnected.value) {
       console.error('[VoiceEdit] Not connected to Gemini')
       return
@@ -122,12 +134,12 @@ export function useVoiceEdit() {
     try {
       console.log('[VoiceEdit] Starting voice recording...')
 
-      // CRITICAL: Get selected text FIRST (before recording)
-      // Store it for later use when silence is detected
-      selectedText.value = await getSelectedTextFromApp()
+      // CRITICAL FIX: Use pre-captured text from main process (captured BEFORE hotkey handler)
+      // This ensures we have the text the user highlighted BEFORE pressing the hotkey
+      selectedText.value = preCapturedText || ''
 
-      console.log('[VoiceEdit] 📤 Selected text captured:', selectedText.value?.substring(0, 100) || '(none)')
-      electronAPI?.log?.(`[Renderer] Selected text: "${selectedText.value}"`)
+      console.log('[VoiceEdit] 📤 Using pre-captured selected text:', selectedText.value?.substring(0, 100) || '(none)')
+      electronAPI?.log?.(`[Renderer] Pre-captured text: "${selectedText.value}"`)
 
       // Now start audio recording
       audioRecorder = new AudioRecorder(16000)

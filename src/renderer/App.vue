@@ -111,11 +111,12 @@ const {
 /**
  * Toggle recording on/off
  */
-function toggleRecording() {
+function toggleRecording(preCapturedText?: string) {
   if (isRecording.value) {
     stopRecording()
   } else {
-    startRecording()
+    // Pass pre-captured text to startRecording
+    startRecording(preCapturedText)
   }
 }
 
@@ -186,8 +187,9 @@ onMounted(async () => {
   // Listen for hotkey from main process
   const electronAPI = (window as any).electronAPI
   if (electronAPI) {
-    electronAPI.onToggleRecording(() => {
-      toggleRecording()
+    electronAPI.onToggleRecording((_event: any, preCapturedText: string) => {
+      // Pass pre-captured selected text to toggle function
+      toggleRecording(preCapturedText)
     })
   }
 })

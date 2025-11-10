@@ -20,7 +20,7 @@ const api = {
   /**
    * Recording control
    */
-  onToggleRecording: (callback: () => void) => {
+  onToggleRecording: (callback: (event: any, selectedText: string) => void) => {
     ipcRenderer.on('toggle-recording', callback)
   },
   notifyRecordingStarted: () => {

@@ -153,9 +153,16 @@ app.whenReady().then(async () => {
 
   // Setup global hotkey (Fn key or configured alternative)
   const hotkey = store.get('hotkey') as string
-  setupHotkeyManager(hotkey, () => {
+  setupHotkeyManager(hotkey, async () => {
     console.log('[Main] Hotkey pressed, toggling recording')
-    mainWindow?.webContents.send('toggle-recording')
+
+    // CRITICAL FIX: Capture selected text BEFORE starting recording
+    // This ensures we have the correct text to work with
+    const selectedText = await getSelectedText()
+    console.log('[Main] Pre-captured selected text:', selectedText?.substring(0, 50) || '(none)')
+
+    // Send to renderer with pre-captured text
+    mainWindow?.webContents.send('toggle-recording', selectedText)
   })
 
   // Handle window activation on macOS
