@@ -52,7 +52,7 @@ function createWindow() {
     height: 700,
     minWidth: 800,
     minHeight: 600,
-    show: true, // Show window on startup so user can enter API key
+    show: false, // Keep hidden by default - user opens via tray or first launch check
     frame: true,
     titleBarStyle: 'hiddenInset',
     webPreferences: {
@@ -65,7 +65,8 @@ function createWindow() {
   // Development mode - use Vite dev server
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
-    mainWindow.webContents.openDevTools()
+    // Don't auto-open DevTools - prevents focus stealing during development
+    // User can manually open via View > Toggle Developer Tools
   } else {
     mainWindow.loadFile(join(__dirname, '../../dist/index.html'))
   }
@@ -268,6 +269,13 @@ app.whenReady().then(async () => {
   // Create window and tray
   createWindow()
   createTray()
+
+  // Show window on first launch if no API key configured
+  const apiKey = store.get('apiKey') as string
+  if (!apiKey || apiKey.trim() === '') {
+    console.log('[Main] No API key found, showing settings window')
+    mainWindow?.show()
+  }
 
   // Initialize Wispr Flow-style native key monitoring (Fn + Fn+Ctrl gestures)
   initializeKeyMonitoring()
