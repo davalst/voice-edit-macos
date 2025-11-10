@@ -2,7 +2,7 @@
   <!-- Wispr Flow-style minimal overlay -->
   <div class="overlay-container">
     <!-- Idle state: tiny hollow dash -->
-    <div v-if="!isRecording" class="overlay-idle">
+    <div v-if="state === 'idle'" class="overlay-idle">
       <div class="idle-dots">
         <span class="dot"></span>
         <span class="dot"></span>
@@ -12,21 +12,28 @@
       </div>
     </div>
 
-    <!-- Recording state: compact waveform bar -->
-    <div v-else class="overlay-recording">
+    <!-- Recording state: compact waveform bar with mode indicator -->
+    <div v-else-if="state === 'recording'" class="overlay-recording">
+      <!-- Mode indicator -->
+      <div class="mode-indicator">
+        <span v-if="enableScreenCapture" class="mode-icon">📹</span>
+        <span v-else class="mode-icon">🎤</span>
+      </div>
+
+      <!-- Waveform -->
+      <canvas ref="waveformCanvas" class="waveform"></canvas>
+
+      <!-- Stop button -->
       <button @click="stopRecording" class="stop-button">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <circle cx="6" cy="6" r="6" fill="currentColor"/>
         </svg>
       </button>
+    </div>
 
-      <canvas ref="waveformCanvas" class="waveform"></canvas>
-
-      <button @click="cancelRecording" class="cancel-button">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-      </button>
+    <!-- Result state: shows last command/result briefly -->
+    <div v-else-if="state === 'result'" class="overlay-result">
+      <div class="result-text">{{ lastResult }}</div>
     </div>
   </div>
 </template>
@@ -34,10 +41,17 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 
-// State
-const isRecording = ref(false)
+// State management
+type OverlayState = 'idle' | 'recording' | 'result'
+const state = ref<OverlayState>('idle')
+const enableScreenCapture = ref(false)
+const currentMode = ref('')
+const lastResult = ref('')
 const waveformCanvas = ref<HTMLCanvasElement | null>(null)
 const waveformData = ref<number[]>([])
+
+// Result display timer
+let resultTimer: NodeJS.Timeout | null = null
 
 // Electron API
 const electronAPI = (window as any).electronAPI
@@ -98,18 +112,20 @@ function stopRecording() {
 }
 
 /**
- * Cancel recording (X button)
- */
-function cancelRecording() {
-  electronAPI?.notifyRecordingStopped?.()
-}
-
-/**
  * Handle overlay show event
  */
-function handleOverlayShow() {
-  console.log('[Overlay] Show')
-  isRecording.value = true
+function handleOverlayShow(config: { mode: string; enableScreenCapture: boolean }) {
+  console.log('[Overlay] Show:', config)
+  state.value = 'recording'
+  currentMode.value = config.mode
+  enableScreenCapture.value = config.enableScreenCapture
+  waveformData.value = []
+
+  // Clear any pending result timer
+  if (resultTimer) {
+    clearTimeout(resultTimer)
+    resultTimer = null
+  }
 }
 
 /**
@@ -117,8 +133,28 @@ function handleOverlayShow() {
  */
 function handleOverlayHide() {
   console.log('[Overlay] Hide')
-  isRecording.value = false
+  state.value = 'idle'
   waveformData.value = []
+  currentMode.value = ''
+  enableScreenCapture.value = false
+}
+
+/**
+ * Handle result display (shows command or edited text briefly)
+ */
+function handleResultDisplay(result: string) {
+  console.log('[Overlay] Result:', result)
+  lastResult.value = result
+  state.value = 'result'
+
+  // Show result for 3 seconds, then return to idle
+  if (resultTimer) {
+    clearTimeout(resultTimer)
+  }
+  resultTimer = setTimeout(() => {
+    state.value = 'idle'
+    lastResult.value = ''
+  }, 3000)
 }
 
 /**
@@ -136,7 +172,7 @@ onMounted(() => {
   // Setup canvas size (compact like Wispr)
   const canvas = waveformCanvas.value
   if (canvas) {
-    canvas.width = 150
+    canvas.width = 120
     canvas.height = 20
     drawWaveform()
   }
@@ -145,6 +181,7 @@ onMounted(() => {
   electronAPI?.onOverlayShow?.(handleOverlayShow)
   electronAPI?.onOverlayHide?.(handleOverlayHide)
   electronAPI?.onOverlayWaveform?.(handleWaveformUpdate)
+  electronAPI?.onOverlayResult?.(handleResultDisplay)
 })
 
 // Redraw waveform when data changes
@@ -169,6 +206,7 @@ watch(waveformData, drawWaveform)
   border-radius: 20px;
   padding: 8px 16px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
 }
 
 .idle-dots {
@@ -182,18 +220,49 @@ watch(waveformData, drawWaveform)
   height: 4px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.4);
+  animation: pulse 2s ease-in-out infinite;
 }
 
-/* Recording state: compact waveform bar */
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+.dot:nth-child(4) { animation-delay: 0.6s; }
+.dot:nth-child(5) { animation-delay: 0.8s; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* Recording state: compact waveform bar with mode indicator */
 .overlay-recording {
   background: rgba(0, 0, 0, 0.9);
   backdrop-filter: blur(10px);
   border-radius: 24px;
-  padding: 12px 16px;
+  padding: 10px 16px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  transition: all 0.2s ease;
+}
+
+.mode-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  opacity: 0.9;
+}
+
+.mode-icon {
+  display: block;
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.3));
+}
+
+.waveform {
+  width: 120px;
+  height: 20px;
+  display: block;
 }
 
 .stop-button {
@@ -217,30 +286,25 @@ watch(waveformData, drawWaveform)
   transform: scale(0.95);
 }
 
-.waveform {
-  width: 150px;
-  height: 20px;
-  display: block;
+/* Result state: shows last command/result */
+.overlay-result {
+  background: rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(10px);
+  border-radius: 24px;
+  padding: 12px 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  max-width: 400px;
+  transition: all 0.2s ease;
 }
 
-.cancel-button {
-  background: transparent;
-  border: none;
-  color: rgba(255, 255, 255, 0.6);
-  cursor: pointer;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: color 0.2s, transform 0.1s;
-}
-
-.cancel-button:hover {
+.result-text {
   color: rgba(255, 255, 255, 0.9);
-  transform: scale(1.1);
-}
-
-.cancel-button:active {
-  transform: scale(0.95);
+  font-size: 13px;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+  line-height: 1.4;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

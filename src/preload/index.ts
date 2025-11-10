@@ -82,6 +82,9 @@ const api = {
   onOverlayWaveform: (callback: (data: number[]) => void) => {
     ipcRenderer.on('overlay-waveform', (_event, data) => callback(data))
   },
+  onOverlayResult: (callback: (result: string) => void) => {
+    ipcRenderer.on('overlay-result', (_event, result) => callback(result))
+  },
 }
 
 /**

@@ -150,6 +150,16 @@ export class OverlayManager {
   }
 
   /**
+   * Show result (command or edited text) briefly
+   */
+  showResult(result: string) {
+    if (this.overlayWindow) {
+      this.overlayWindow.webContents.send('overlay-result', result)
+      console.log('[OverlayManager] Result shown:', result.substring(0, 50))
+    }
+  }
+
+  /**
    * Destroy overlay window
    */
   destroy() {

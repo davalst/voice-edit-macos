@@ -348,6 +348,10 @@ ipcMain.on('recording-stopped', () => {
 ipcMain.on('paste-text', (_event, text: string) => {
   console.log('[Main] Pasting text:', text.substring(0, 50) + '...')
 
+  // Show result in overlay briefly
+  const preview = text.length > 50 ? text.substring(0, 50) + '...' : text
+  overlayManager?.showResult(preview)
+
   // Copy to clipboard
   copyToClipboard(text)
 
