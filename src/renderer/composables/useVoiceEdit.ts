@@ -61,11 +61,7 @@ export function useVoiceEdit() {
       geminiAdapter.on('setupComplete', () => {
         console.log('[VoiceEdit] ✅ Connected to Gemini')
         isConnected.value = true
-
-        // CRITICAL FIX: Auto-start recording after connection (like Ebben POC)
-        // This ensures the app is ready to receive commands immediately
-        console.log('[VoiceEdit] Auto-starting recording...')
-        startRecording()
+        // Ready - waiting for user to press hotkey to start recording
       })
 
       let outputText = ''

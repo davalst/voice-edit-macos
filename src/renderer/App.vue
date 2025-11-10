@@ -93,7 +93,7 @@ import { useVoiceEdit } from './composables/useVoiceEdit'
 
 // Settings
 const apiKey = ref('')
-const hotkey = ref('CommandOrControl+Shift+Space')
+const hotkey = ref('Control+Space')
 const screenSharingEnabled = ref(true)
 const launchAtLogin = ref(false)
 
@@ -132,7 +132,7 @@ async function loadSettings() {
 
   const config = await electronAPI.getConfig()
   apiKey.value = config.apiKey || ''
-  hotkey.value = config.hotkey || 'CommandOrControl+Shift+Space'
+  hotkey.value = config.hotkey || 'Control+Space'
   screenSharingEnabled.value = config.screenSharingEnabled !== false
   launchAtLogin.value = config.launchAtLogin === true
 }

@@ -20,7 +20,7 @@ import { requestPermissions } from './permissions'
 const store = new Store({
   defaults: {
     apiKey: '',
-    hotkey: 'Fn',
+    hotkey: 'Control+Space',
     vadSensitivity: 0.02,
     silenceDuration: 1500,
     screenSharingEnabled: true,
