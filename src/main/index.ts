@@ -15,6 +15,9 @@ import Store from 'electron-store'
 import { setupHotkeyManager } from './hotkey-manager'
 import { simulatePaste, copyToClipboard, getSelectedText, getFocusedAppName } from './clipboard-manager'
 import { requestPermissions } from './permissions'
+import { KeyMonitor } from './key-monitor-native'
+import { HotkeyStateMachine, RecordingMode } from './hotkey-state-machine'
+import { GestureDetector } from './gesture-detector'
 
 // Configuration store
 const store = new Store({
@@ -32,6 +35,11 @@ const store = new Store({
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isRecording = false
+
+// Wispr Flow feature: Native key monitoring + state machine
+let keyMonitor: KeyMonitor | null = null
+let stateMachine: HotkeyStateMachine | null = null
+let gestureDetector: GestureDetector | null = null
 
 /**
  * Create main window (status/settings window)
@@ -136,6 +144,85 @@ function updateTrayStatus(recording: boolean) {
 }
 
 /**
+ * Initialize Wispr Flow-style native key monitoring
+ */
+function initializeKeyMonitoring() {
+  console.log('[Main] Initializing native key monitoring...')
+
+  // Create instances
+  keyMonitor = new KeyMonitor()
+  stateMachine = new HotkeyStateMachine()
+  gestureDetector = new GestureDetector()
+
+  // Wire up gesture detector to state machine
+  gestureDetector.on('fnDoubleTap', (timestamp) => {
+    stateMachine?.onFnDoubleTap(timestamp)
+  })
+
+  gestureDetector.on('fnCtrlDoubleTap', (timestamp) => {
+    stateMachine?.onFnCtrlDoubleTap(timestamp)
+  })
+
+  // Wire up state machine to renderer
+  stateMachine.on('recordingStarted', async (config: { mode: RecordingMode; enableScreenCapture: boolean; isToggleMode: boolean }) => {
+    console.log('[Main] Recording started:', config.mode, config.enableScreenCapture ? '+ Screen' : '')
+
+    // Capture context before starting recording
+    const focusedAppName = await getFocusedAppName()
+    const selectedText = await getSelectedText()
+
+    // Send to renderer with recording mode configuration
+    mainWindow?.webContents.send('start-recording', {
+      mode: config.mode,
+      enableScreenCapture: config.enableScreenCapture,
+      isToggleMode: config.isToggleMode,
+      selectedText,
+      focusedAppName
+    })
+
+    updateTrayStatus(true)
+  })
+
+  stateMachine.on('recordingStopped', () => {
+    console.log('[Main] Recording stopped')
+    mainWindow?.webContents.send('stop-recording')
+    updateTrayStatus(false)
+  })
+
+  // Wire up key monitor to both state machine and gesture detector
+  keyMonitor.on('keyStateChange', (event: { fnPressed: boolean; ctrlPressed: boolean; timestamp: number }) => {
+    // Send to gesture detector for double-tap detection
+    if (event.fnPressed) {
+      gestureDetector?.onKeyPress(event.fnPressed, event.ctrlPressed, event.timestamp)
+    } else {
+      gestureDetector?.onKeyRelease(event.fnPressed, event.ctrlPressed, event.timestamp)
+    }
+
+    // Send to state machine for hold detection
+    if (event.fnPressed) {
+      stateMachine?.onFnPress(event.timestamp)
+    } else {
+      stateMachine?.onFnRelease(event.timestamp)
+    }
+
+    if (event.ctrlPressed) {
+      stateMachine?.onCtrlPress(event.timestamp)
+    } else {
+      stateMachine?.onCtrlRelease(event.timestamp)
+    }
+  })
+
+  // Start monitoring
+  const success = keyMonitor.start()
+  if (success) {
+    console.log('[Main] ✅ Native key monitoring active (Fn + Fn+Ctrl gestures enabled)')
+  } else {
+    console.error('[Main] ❌ Failed to start native key monitoring')
+    console.error('[Main] Please grant Accessibility permissions in System Preferences')
+  }
+}
+
+/**
  * App ready event
  */
 app.whenReady().then(async () => {
@@ -151,10 +238,13 @@ app.whenReady().then(async () => {
   createWindow()
   createTray()
 
-  // Setup global hotkey (Fn key or configured alternative)
+  // Initialize Wispr Flow-style native key monitoring (Fn + Fn+Ctrl gestures)
+  initializeKeyMonitoring()
+
+  // Setup global hotkey (Control+Space - legacy mode, preserved for backward compatibility)
   const hotkey = store.get('hotkey') as string
   setupHotkeyManager(hotkey, async () => {
-    console.log('[Main] Hotkey pressed, toggling recording')
+    console.log('[Main] Hotkey pressed (legacy Control+Space), toggling recording')
 
     // CRITICAL FIX: Capture context BEFORE starting recording
     // 1. Get focused app name (for window-specific screen capture)
@@ -274,6 +364,12 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   // Unregister all shortcuts
   globalShortcut.unregisterAll()
+
+  // Stop native key monitoring
+  if (keyMonitor) {
+    keyMonitor.stop()
+    console.log('[Main] Native key monitoring stopped')
+  }
 })
 
 app.on('before-quit', () => {

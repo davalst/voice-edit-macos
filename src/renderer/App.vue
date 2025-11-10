@@ -13,7 +13,7 @@
         <span class="status-text">{{ isRecording ? 'Recording...' : 'Ready' }}</span>
       </div>
 
-      <button @click="toggleRecording" class="primary-button">
+      <button @click="() => toggleRecording()" class="primary-button">
         {{ isRecording ? 'Stop Recording' : 'Start Recording' }}
       </button>
 

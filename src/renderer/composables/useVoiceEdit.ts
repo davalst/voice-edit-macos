@@ -321,20 +321,6 @@ export function useVoiceEdit() {
     console.log('[VoiceEdit] Screen sharing stopped')
   }
 
-  /**
-   * Get selected text from active macOS application
-   */
-  async function getSelectedTextFromApp(): Promise<string> {
-    try {
-      // Use Electron IPC to get selected text (uses Cmd+C behind the scenes)
-      const selectedText = await electronAPI?.getSelectedText()
-      console.log('[VoiceEdit] Got selected text:', selectedText?.substring(0, 50) + '...')
-      return selectedText || ''
-    } catch (error) {
-      console.error('[VoiceEdit] Failed to get selected text:', error)
-      return ''
-    }
-  }
 
   /**
    * Handle Gemini response and execute appropriate action
