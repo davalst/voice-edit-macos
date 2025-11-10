@@ -54,6 +54,8 @@
       <div class="setting-item">
         <label>Hotkey:</label>
         <select v-model="hotkey" @change="saveSettings">
+          <option value="Control+Space">Control+Space</option>
+          <option value="Command+Space">⌘+Space</option>
           <option value="CommandOrControl+Shift+Space">⌘+Shift+Space</option>
           <option value="CommandOrControl+Shift+V">⌘+Shift+V</option>
           <option value="Control+Alt+Space">Ctrl+Alt+Space</option>
@@ -111,12 +113,12 @@ const {
 /**
  * Toggle recording on/off
  */
-function toggleRecording(preCapturedText?: string) {
+function toggleRecording(context?: { selectedText?: string; focusedAppName?: string }) {
   if (isRecording.value) {
     stopRecording()
   } else {
-    // Pass pre-captured text to startRecording
-    startRecording(preCapturedText)
+    // Pass pre-captured context to startRecording
+    startRecording(context?.selectedText, context?.focusedAppName)
   }
 }
 
@@ -187,9 +189,9 @@ onMounted(async () => {
   // Listen for hotkey from main process
   const electronAPI = (window as any).electronAPI
   if (electronAPI) {
-    electronAPI.onToggleRecording((_event: any, preCapturedText: string) => {
-      // Pass pre-captured selected text to toggle function
-      toggleRecording(preCapturedText)
+    electronAPI.onToggleRecording((_event: any, context: { selectedText: string; focusedAppName: string }) => {
+      // Pass pre-captured context to toggle function
+      toggleRecording(context)
     })
   }
 })

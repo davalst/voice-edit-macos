@@ -20,7 +20,7 @@ const api = {
   /**
    * Recording control
    */
-  onToggleRecording: (callback: (event: any, selectedText: string) => void) => {
+  onToggleRecording: (callback: (event: any, context: { selectedText: string; focusedAppName: string }) => void) => {
     ipcRenderer.on('toggle-recording', callback)
   },
   notifyRecordingStarted: () => {
@@ -58,6 +58,11 @@ const api = {
    */
   platform: process.platform,
   versions: process.versions,
+
+  /**
+   * Screen capture (Electron desktopCapturer API via IPC)
+   */
+  getScreenSources: (opts: any) => ipcRenderer.invoke('get-screen-sources', opts),
 }
 
 /**

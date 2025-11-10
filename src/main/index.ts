@@ -9,11 +9,11 @@
  * - IPC communication with renderer
  */
 
-import { app, BrowserWindow, globalShortcut, ipcMain, clipboard, Tray, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, clipboard, Tray, Menu, nativeImage, desktopCapturer } from 'electron'
 import { join } from 'path'
 import Store from 'electron-store'
 import { setupHotkeyManager } from './hotkey-manager'
-import { simulatePaste, copyToClipboard, getSelectedText } from './clipboard-manager'
+import { simulatePaste, copyToClipboard, getSelectedText, getFocusedAppName } from './clipboard-manager'
 import { requestPermissions } from './permissions'
 
 // Configuration store
@@ -156,13 +156,20 @@ app.whenReady().then(async () => {
   setupHotkeyManager(hotkey, async () => {
     console.log('[Main] Hotkey pressed, toggling recording')
 
-    // CRITICAL FIX: Capture selected text BEFORE starting recording
-    // This ensures we have the correct text to work with
+    // CRITICAL FIX: Capture context BEFORE starting recording
+    // 1. Get focused app name (for window-specific screen capture)
+    // 2. Get selected text (for context)
+    const focusedAppName = await getFocusedAppName()
     const selectedText = await getSelectedText()
+
+    console.log('[Main] Focused app:', focusedAppName)
     console.log('[Main] Pre-captured selected text:', selectedText?.substring(0, 50) || '(none)')
 
-    // Send to renderer with pre-captured text
-    mainWindow?.webContents.send('toggle-recording', selectedText)
+    // Send to renderer with pre-captured context
+    mainWindow?.webContents.send('toggle-recording', {
+      selectedText,
+      focusedAppName
+    })
   })
 
   // Handle window activation on macOS
@@ -240,6 +247,17 @@ ipcMain.on('show-notification', (_event, message: string) => {
 // Log from renderer (for debugging)
 ipcMain.on('log', (_event, message: string) => {
   console.log(message)
+})
+
+// Get screen sources for screen capture
+ipcMain.handle('get-screen-sources', async (_event, opts: any) => {
+  try {
+    const sources = await desktopCapturer.getSources(opts)
+    return sources
+  } catch (error: any) {
+    console.error('[Main] Failed to get screen sources:', error.message)
+    throw error
+  }
 })
 
 /**
