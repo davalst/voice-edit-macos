@@ -98,13 +98,19 @@ export class HotkeyStateMachine extends EventEmitter {
     const holdDuration = timestamp - this.ctrlPressStartTime
     this.ctrlPressed = false
 
-    console.log(`[StateMachine] Ctrl released after ${holdDuration.toFixed(0)}ms, current state: ${this.currentState}`)
+    console.log(`[StateMachine] Ctrl released after ${holdDuration.toFixed(0)}ms, current state: ${this.currentState}, fnPressed: ${this.fnPressed}`)
 
-    // If in STT+Screen hold mode and Fn still pressed, downgrade to STT only
-    if (this.currentState === RecordingMode.STT_SCREEN_HOLD && this.fnPressed) {
-      this.transitionTo(RecordingMode.STT_ONLY_HOLD, 'ctrl_release', timestamp)
-    } else if (this.currentState === RecordingMode.STT_SCREEN_HOLD && !this.fnPressed) {
-      // Both keys released, always stop
+    // Only handle Ctrl release if we're in a screen capture mode
+    if (this.currentState === RecordingMode.STT_SCREEN_HOLD) {
+      if (this.fnPressed) {
+        // Fn still held, downgrade to STT only mode
+        this.transitionTo(RecordingMode.STT_ONLY_HOLD, 'ctrl_release', timestamp)
+      } else {
+        // Fn was already released, stop recording
+        this.transitionTo(RecordingMode.IDLE, 'ctrl_release', timestamp)
+      }
+    } else if (this.currentState === RecordingMode.STT_SCREEN_TOGGLE && !this.fnPressed) {
+      // In toggle mode, only stop if both keys released
       this.transitionTo(RecordingMode.IDLE, 'ctrl_release', timestamp)
     }
   }
