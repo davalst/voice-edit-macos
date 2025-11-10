@@ -150,6 +150,12 @@ export function useVoiceEdit() {
       return
     }
 
+    // Guard: Prevent starting if already recording
+    if (isRecording.value) {
+      console.log('[VoiceEdit] Already recording, ignoring start request')
+      return
+    }
+
     try {
       console.log('[VoiceEdit] Starting recording with mode:', config.mode)
 
@@ -285,6 +291,12 @@ export function useVoiceEdit() {
    * Stop voice recording
    */
   function stopRecording() {
+    // Guard: Prevent stopping if not recording
+    if (!isRecording.value) {
+      console.log('[VoiceEdit] Not recording, ignoring stop request')
+      return
+    }
+
     if (audioRecorder) {
       audioRecorder.stop()
       audioRecorder = null
