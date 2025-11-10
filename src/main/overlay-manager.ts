@@ -126,7 +126,8 @@ export class OverlayManager {
       enableScreenCapture,
     })
 
-    this.overlayWindow?.show()
+    // Use showInactive() to prevent stealing focus from active app
+    this.overlayWindow?.showInactive()
     console.log('[OverlayManager] Overlay shown:', mode, enableScreenCapture ? '+ Screen' : '')
   }
 

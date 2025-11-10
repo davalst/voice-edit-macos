@@ -176,12 +176,16 @@ function initializeKeyMonitoring() {
   stateMachine.on('recordingStarted', async (config: { mode: RecordingMode; enableScreenCapture: boolean; isToggleMode: boolean }) => {
     console.log('[Main] Recording started:', config.mode, config.enableScreenCapture ? '+ Screen' : '')
 
-    // Show overlay with recording mode
-    overlayManager?.show(config.mode, config.enableScreenCapture)
-
-    // Capture context before starting recording
+    // CRITICAL: Capture context BEFORE showing overlay to preserve cursor focus
+    // 1. Get focused app name (for window-specific screen capture)
+    // 2. Get selected text (uses Cmd+C, which briefly affects focus)
     const focusedAppName = await getFocusedAppName()
     const selectedText = await getSelectedText()
+
+    console.log('[Main] Context captured - Focused app:', focusedAppName, 'Selected text:', selectedText?.substring(0, 50) || '(none)')
+
+    // NOW show overlay (after context capture to avoid stealing focus)
+    overlayManager?.show(config.mode, config.enableScreenCapture)
 
     // Send to renderer with recording mode configuration
     mainWindow?.webContents.send('start-recording', {

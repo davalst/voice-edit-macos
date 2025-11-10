@@ -156,6 +156,9 @@ export function useVoiceEdit() {
       return
     }
 
+    // Set recording flag immediately to prevent race conditions
+    isRecording.value = true
+
     try {
       console.log('[VoiceEdit] Starting recording with mode:', config.mode)
 
@@ -279,7 +282,7 @@ export function useVoiceEdit() {
     })
 
     await audioRecorder.start()
-    isRecording.value = true
+    // isRecording.value is already set to true at the start of startRecordingWithMode()
 
     // Notify main process
     electronAPI?.notifyRecordingStarted()
