@@ -11,7 +11,7 @@
 
 import { BrowserWindow, screen } from 'electron'
 import { join } from 'path'
-import { RecordingMode } from './hotkey-state-machine'
+import { RecordingMode } from '../shared/types'
 
 export class OverlayManager {
   private overlayWindow: BrowserWindow | null = null

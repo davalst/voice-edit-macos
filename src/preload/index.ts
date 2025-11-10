@@ -23,6 +23,12 @@ const api = {
   onToggleRecording: (callback: (event: any, context: { selectedText: string; focusedAppName: string }) => void) => {
     ipcRenderer.on('toggle-recording', callback)
   },
+  onStartRecording: (callback: (event: any, data: any) => void) => {
+    ipcRenderer.on('start-recording', callback)
+  },
+  onStopRecording: (callback: () => void) => {
+    ipcRenderer.on('stop-recording', callback)
+  },
   notifyRecordingStarted: () => {
     ipcRenderer.send('recording-started')
   },

@@ -106,6 +106,7 @@ const {
   lastCommand,
   lastResult,
   startRecording,
+  startRecordingWithMode,
   stopRecording,
   init,
 } = useVoiceEdit()
@@ -189,9 +190,21 @@ onMounted(async () => {
   // Listen for hotkey from main process
   const electronAPI = (window as any).electronAPI
   if (electronAPI) {
+    // Legacy Control+Space hotkey (toggle mode)
     electronAPI.onToggleRecording((_event: any, context: { selectedText: string; focusedAppName: string }) => {
       // Pass pre-captured context to toggle function
       toggleRecording(context)
+    })
+
+    // New Fn/Fn+Ctrl hotkey (multi-mode)
+    electronAPI.onStartRecording((_event: any, config: any) => {
+      console.log('[App] Start recording event received:', config)
+      startRecordingWithMode(config)
+    })
+
+    electronAPI.onStopRecording(() => {
+      console.log('[App] Stop recording event received')
+      stopRecording()
     })
   }
 })

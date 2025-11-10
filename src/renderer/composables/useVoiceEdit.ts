@@ -17,6 +17,7 @@ import { AudioRecorder } from '../lib/audio-recorder'
 import { VideoFrameCapturer } from '../lib/video-frame-capturer'
 import { useScreenCapture } from '../lib/use-screen-capture'
 import { VOICE_EDIT_SYSTEM_INSTRUCTION, VOICE_EDIT_RESPONSE_SCHEMA } from '../../../voice-edit-system-instruction'
+import { RecordingMode, RecordingStartEvent } from '../../shared/types'
 
 export function useVoiceEdit() {
   // State
@@ -28,6 +29,7 @@ export function useVoiceEdit() {
   const selectedText = ref('')
   const focusedAppName = ref('')
   const isProcessing = ref(false) // Guard to prevent duplicate processing
+  const currentMode = ref<RecordingMode>(RecordingMode.IDLE)
 
   // Services
   let geminiAdapter: GeminiLiveSDKAdapter | null = null
@@ -140,32 +142,38 @@ export function useVoiceEdit() {
   }
 
   /**
-   * Start voice recording
+   * Start voice recording with multi-mode support
    */
-  async function startRecording(preCapturedText?: string, appName?: string) {
+  async function startRecordingWithMode(config: RecordingStartEvent) {
     if (!geminiAdapter || !isConnected.value) {
       console.error('[VoiceEdit] Not connected to Gemini')
       return
     }
 
     try {
-      console.log('[VoiceEdit] Starting voice recording...')
+      console.log('[VoiceEdit] Starting recording with mode:', config.mode)
 
-      // CRITICAL FIX: Use pre-captured context from main process (captured BEFORE hotkey handler)
-      // This ensures we have the text and app context BEFORE pressing the hotkey
-      selectedText.value = preCapturedText || ''
-      focusedAppName.value = appName || ''
+      // Update state
+      currentMode.value = config.mode
+      selectedText.value = config.selectedText || ''
+      focusedAppName.value = config.focusedAppName || ''
 
-      console.log('[VoiceEdit] 📤 Using pre-captured context:')
+      console.log('[VoiceEdit] 📤 Recording config:')
+      console.log('  - Mode:', config.mode)
+      console.log('  - Screen capture:', config.enableScreenCapture)
       console.log('  - Selected text:', selectedText.value?.substring(0, 100) || '(none)')
       console.log('  - Focused app:', focusedAppName.value)
-      electronAPI?.log?.(`[Renderer] Pre-captured: app="${focusedAppName.value}" text="${selectedText.value.substring(0, 50)}"`)
 
-      // SECURITY: Start screen sharing ONLY during recording
-      // This captures only the target app window while mic is active
-      if (focusedAppName.value) {
+      electronAPI?.log?.(`[Renderer] Starting ${config.mode}, screen=${config.enableScreenCapture}`)
+
+      // SECURITY: Start screen sharing ONLY if mode requires it
+      // - STT_SCREEN_HOLD: Fn+Ctrl held = screen ON
+      // - STT_SCREEN_TOGGLE: Double-tap Fn+Ctrl = screen ON
+      // - STT_ONLY_HOLD: Fn held = screen OFF
+      // - STT_ONLY_TOGGLE: Double-tap Fn = screen OFF
+      if (config.enableScreenCapture && focusedAppName.value) {
         console.log('[VoiceEdit] Starting screen capture for target app:', focusedAppName.value)
-        electronAPI?.log?.(`[Renderer] Starting screen capture (recording active): ${focusedAppName.value}`)
+        electronAPI?.log?.(`[Renderer] Screen capture enabled: ${focusedAppName.value}`)
 
         // Stop any existing screen sharing first
         if (videoFrameCapturer) {
@@ -173,73 +181,104 @@ export function useVoiceEdit() {
         }
 
         await startScreenSharing(focusedAppName.value)
+      } else {
+        console.log('[VoiceEdit] Screen capture disabled for this mode')
+        electronAPI?.log?.('[Renderer] Screen capture OFF (STT-only mode)')
       }
 
       // Now start audio recording
-      audioRecorder = new AudioRecorder(16000)
-
-      // Stream audio to Gemini continuously
-      audioRecorder.on('data', (base64Audio: string) => {
-        if (geminiAdapter && isRecording.value) {
-          geminiAdapter.sendRealtimeInput({
-            media: {
-              data: base64Audio,
-              mimeType: 'audio/pcm;rate=16000',
-            },
-          })
-        }
-      })
-
-      // CRITICAL: Silence detection - THEN send context + turnComplete
-      // This matches the working Ebben POC pattern exactly
-      audioRecorder.on('silence', async () => {
-        if (!geminiAdapter || !isRecording.value) return
-
-        // Guard: Prevent duplicate processing
-        if (isProcessing.value) {
-          console.log('[VoiceEdit] Already processing - ignoring silence')
-          return
-        }
-
-        isProcessing.value = true
-        console.log('[VoiceEdit] 🔕 Silence detected - sending context + turnComplete')
-        electronAPI?.log?.(`[Renderer] Silence detected - sending context + turnComplete`)
-
-        try {
-          // Build MINIMAL context message (exactly like Ebben POC)
-          const contextMessage = `Focus text: "${selectedText.value}"`
-
-          console.log('[VoiceEdit] 📤 Sending context:', contextMessage.substring(0, 150))
-          electronAPI?.log?.(`[Renderer] Context: "${contextMessage.substring(0, 150)}"`)
-
-          // Send context with turnComplete: false (don't trigger response yet)
-          geminiAdapter.sendClientContent({
-            turns: [{ text: contextMessage }],
-            turnComplete: false,
-          })
-
-          // NOW send turnComplete to trigger Gemini response
-          const sent = await geminiAdapter.sendTurnComplete()
-          if (sent) {
-            console.log('[VoiceEdit] ✅ Context sent, waiting for Gemini response')
-          }
-        } catch (error) {
-          console.error('[VoiceEdit] Error sending context/turnComplete:', error)
-          isProcessing.value = false
-        }
-      })
-
-      await audioRecorder.start()
-      isRecording.value = true
-
-      // Notify main process
-      electronAPI?.notifyRecordingStarted()
-
-      console.log('[VoiceEdit] ✅ Recording started - speak when ready')
+      await startAudioRecording()
     } catch (error: any) {
       console.error('[VoiceEdit] Failed to start recording:', error.message)
       isProcessing.value = false
     }
+  }
+
+  /**
+   * Start voice recording (legacy - for Control+Space)
+   */
+  async function startRecording(preCapturedText?: string, appName?: string) {
+    // Legacy mode: Always enable screen capture (backward compatibility)
+    const config: RecordingStartEvent = {
+      mode: RecordingMode.STT_SCREEN_HOLD,
+      enableScreenCapture: true,
+      isToggleMode: false,
+      selectedText: preCapturedText || '',
+      focusedAppName: appName || ''
+    }
+
+    await startRecordingWithMode(config)
+  }
+
+  /**
+   * Start audio recording
+   */
+  async function startAudioRecording() {
+    if (!geminiAdapter || !isConnected.value) {
+      return
+    }
+
+    // Start audio recording
+    audioRecorder = new AudioRecorder(16000)
+
+    // Stream audio to Gemini continuously
+    audioRecorder.on('data', (base64Audio: string) => {
+      if (geminiAdapter && isRecording.value) {
+        geminiAdapter.sendRealtimeInput({
+          media: {
+            data: base64Audio,
+            mimeType: 'audio/pcm;rate=16000',
+          },
+        })
+      }
+    })
+
+    // CRITICAL: Silence detection - THEN send context + turnComplete
+    // This matches the working Ebben POC pattern exactly
+    audioRecorder.on('silence', async () => {
+      if (!geminiAdapter || !isRecording.value) return
+
+      // Guard: Prevent duplicate processing
+      if (isProcessing.value) {
+        console.log('[VoiceEdit] Already processing - ignoring silence')
+        return
+      }
+
+      isProcessing.value = true
+      console.log('[VoiceEdit] 🔕 Silence detected - sending context + turnComplete')
+      electronAPI?.log?.(`[Renderer] Silence detected - sending context + turnComplete`)
+
+      try {
+        // Build MINIMAL context message (exactly like Ebben POC)
+        const contextMessage = `Focus text: "${selectedText.value}"`
+
+        console.log('[VoiceEdit] 📤 Sending context:', contextMessage.substring(0, 150))
+        electronAPI?.log?.(`[Renderer] Context: "${contextMessage.substring(0, 150)}"`)
+
+        // Send context with turnComplete: false (don't trigger response yet)
+        geminiAdapter.sendClientContent({
+          turns: [{ text: contextMessage }],
+          turnComplete: false,
+        })
+
+        // NOW send turnComplete to trigger Gemini response
+        const sent = await geminiAdapter.sendTurnComplete()
+        if (sent) {
+          console.log('[VoiceEdit] ✅ Context sent, waiting for Gemini response')
+        }
+      } catch (error) {
+        console.error('[VoiceEdit] Error sending context/turnComplete:', error)
+        isProcessing.value = false
+      }
+    })
+
+    await audioRecorder.start()
+    isRecording.value = true
+
+    // Notify main process
+    electronAPI?.notifyRecordingStarted()
+
+    console.log('[VoiceEdit] ✅ Recording started - speak when ready')
   }
 
   /**
@@ -252,6 +291,7 @@ export function useVoiceEdit() {
     }
 
     isRecording.value = false
+    currentMode.value = RecordingMode.IDLE
 
     // SECURITY: Stop screen sharing when recording stops
     // This ensures screen is only captured while mic is active
@@ -264,7 +304,7 @@ export function useVoiceEdit() {
     // Notify main process
     electronAPI?.notifyRecordingStopped()
 
-    console.log('[VoiceEdit] Recording stopped')
+    console.log('[VoiceEdit] Recording stopped, mode reset to IDLE')
   }
 
   /**
@@ -469,8 +509,10 @@ export function useVoiceEdit() {
     isScreenSharing,
     lastCommand,
     lastResult,
+    currentMode,
     init,
     startRecording,
+    startRecordingWithMode,
     stopRecording,
     startScreenSharing,
     stopScreenSharing,
