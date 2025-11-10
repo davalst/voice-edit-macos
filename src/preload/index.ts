@@ -63,6 +63,19 @@ const api = {
    * Screen capture (Electron desktopCapturer API via IPC)
    */
   getScreenSources: (opts: any) => ipcRenderer.invoke('get-screen-sources', opts),
+
+  /**
+   * Overlay window events
+   */
+  onOverlayShow: (callback: (data: { mode: string; enableScreenCapture: boolean }) => void) => {
+    ipcRenderer.on('overlay-show', (_event, data) => callback(data))
+  },
+  onOverlayHide: (callback: () => void) => {
+    ipcRenderer.on('overlay-hide', callback)
+  },
+  onOverlayWaveform: (callback: (data: number[]) => void) => {
+    ipcRenderer.on('overlay-waveform', (_event, data) => callback(data))
+  },
 }
 
 /**

@@ -18,6 +18,7 @@ import { requestPermissions } from './permissions'
 import { KeyMonitor } from './key-monitor-native'
 import { HotkeyStateMachine, RecordingMode } from './hotkey-state-machine'
 import { GestureDetector } from './gesture-detector'
+import { OverlayManager } from './overlay-manager'
 
 // Configuration store
 const store = new Store({
@@ -36,10 +37,11 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isRecording = false
 
-// Wispr Flow feature: Native key monitoring + state machine
+// Wispr Flow feature: Native key monitoring + state machine + overlay
 let keyMonitor: KeyMonitor | null = null
 let stateMachine: HotkeyStateMachine | null = null
 let gestureDetector: GestureDetector | null = null
+let overlayManager: OverlayManager | null = null
 
 /**
  * Create main window (status/settings window)
@@ -153,6 +155,10 @@ function initializeKeyMonitoring() {
   keyMonitor = new KeyMonitor()
   stateMachine = new HotkeyStateMachine()
   gestureDetector = new GestureDetector()
+  overlayManager = new OverlayManager()
+
+  // Create overlay window (hidden initially)
+  overlayManager.create()
 
   // Wire up gesture detector to state machine
   gestureDetector.on('fnDoubleTap', (timestamp) => {
@@ -163,9 +169,12 @@ function initializeKeyMonitoring() {
     stateMachine?.onFnCtrlDoubleTap(timestamp)
   })
 
-  // Wire up state machine to renderer
+  // Wire up state machine to renderer + overlay
   stateMachine.on('recordingStarted', async (config: { mode: RecordingMode; enableScreenCapture: boolean; isToggleMode: boolean }) => {
     console.log('[Main] Recording started:', config.mode, config.enableScreenCapture ? '+ Screen' : '')
+
+    // Show overlay with recording mode
+    overlayManager?.show(config.mode, config.enableScreenCapture)
 
     // Capture context before starting recording
     const focusedAppName = await getFocusedAppName()
@@ -185,6 +194,10 @@ function initializeKeyMonitoring() {
 
   stateMachine.on('recordingStopped', () => {
     console.log('[Main] Recording stopped')
+
+    // Hide overlay
+    overlayManager?.hide()
+
     mainWindow?.webContents.send('stop-recording')
     updateTrayStatus(false)
   })
