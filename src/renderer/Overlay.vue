@@ -1,82 +1,49 @@
 <template>
-  <div :class="['overlay-container', { visible: isVisible }]" v-if="isVisible">
-    <!-- Main overlay card -->
-    <div class="overlay-card">
-      <!-- Mode indicator -->
-      <div class="mode-indicator">
-        <div class="mode-icon">{{ modeIcon }}</div>
-        <div class="mode-text">
-          <div class="mode-title">{{ modeTitle }}</div>
-          <div class="mode-subtitle">{{ modeSubtitle }}</div>
-        </div>
+  <!-- Wispr Flow-style minimal overlay -->
+  <div class="overlay-container">
+    <!-- Idle state: tiny hollow dash -->
+    <div v-if="!isRecording" class="overlay-idle">
+      <div class="idle-dots">
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
       </div>
+    </div>
 
-      <!-- Waveform visualization -->
-      <div class="waveform-container">
-        <canvas ref="waveformCanvas" class="waveform"></canvas>
-      </div>
+    <!-- Recording state: compact waveform bar -->
+    <div v-else class="overlay-recording">
+      <button @click="stopRecording" class="stop-button">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <circle cx="6" cy="6" r="6" fill="currentColor"/>
+        </svg>
+      </button>
 
-      <!-- Screen capture indicator -->
-      <div v-if="screenCaptureEnabled" class="screen-indicator">
-        <span class="screen-icon">📺</span>
-        <span class="screen-text">Screen Recording</span>
-      </div>
+      <canvas ref="waveformCanvas" class="waveform"></canvas>
+
+      <button @click="cancelRecording" class="cancel-button">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 
 // State
-const isVisible = ref(false)
-const currentMode = ref('idle')
-const screenCaptureEnabled = ref(false)
+const isRecording = ref(false)
 const waveformCanvas = ref<HTMLCanvasElement | null>(null)
 const waveformData = ref<number[]>([])
 
 // Electron API
 const electronAPI = (window as any).electronAPI
 
-// Mode display info
-const modeInfo = computed(() => {
-  const modes: Record<string, { icon: string; title: string; subtitle: string }> = {
-    idle: {
-      icon: '⏸️',
-      title: 'Ready',
-      subtitle: 'Press Fn to start',
-    },
-    stt_only_hold: {
-      icon: '🎤',
-      title: 'Listening',
-      subtitle: 'Hold Fn to record',
-    },
-    stt_screen_hold: {
-      icon: '🎬',
-      title: 'Recording',
-      subtitle: 'Hold Fn+Ctrl for screen',
-    },
-    stt_only_toggle: {
-      icon: '🎙️',
-      title: 'Recording',
-      subtitle: 'Double-tap Fn to stop',
-    },
-    stt_screen_toggle: {
-      icon: '📹',
-      title: 'Recording + Screen',
-      subtitle: 'Double-tap Fn+Ctrl to stop',
-    },
-  }
-
-  return modes[currentMode.value] || modes.idle
-})
-
-const modeIcon = computed(() => modeInfo.value.icon)
-const modeTitle = computed(() => modeInfo.value.title)
-const modeSubtitle = computed(() => modeInfo.value.subtitle)
-
 /**
- * Draw waveform visualization
+ * Draw waveform visualization (Wispr style: vertical bars)
  */
 function drawWaveform() {
   const canvas = waveformCanvas.value
@@ -92,52 +59,57 @@ function drawWaveform() {
   // Clear canvas
   ctx.clearRect(0, 0, width, height)
 
-  // Ebben POC colors
-  const gradientColor = ctx.createLinearGradient(0, 0, width, 0)
-  gradientColor.addColorStop(0, '#667EEA') // Purple-ish
-  gradientColor.addColorStop(1, '#64B5F6') // Blue
-
-  ctx.strokeStyle = gradientColor
-  ctx.lineWidth = 2
-  ctx.lineCap = 'round'
-  ctx.lineJoin = 'round'
-
   if (data.length === 0) {
-    // No data - draw flat line
-    ctx.beginPath()
-    ctx.moveTo(0, height / 2)
-    ctx.lineTo(width, height / 2)
-    ctx.stroke()
+    // No data - draw flat bars
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)'
+    const barCount = 20
+    const barWidth = 2
+    const gap = (width - barCount * barWidth) / (barCount - 1)
+
+    for (let i = 0; i < barCount; i++) {
+      const x = i * (barWidth + gap)
+      const barHeight = height * 0.2
+      ctx.fillRect(x, (height - barHeight) / 2, barWidth, barHeight)
+    }
     return
   }
 
-  // Draw waveform
-  const barWidth = width / data.length
+  // Draw animated waveform bars
+  ctx.fillStyle = '#ffffff'
+  const barCount = Math.min(data.length, 20)
+  const barWidth = 2
+  const gap = (width - barCount * barWidth) / (barCount - 1)
   const maxAmplitude = Math.max(...data, 0.1)
 
-  ctx.beginPath()
-  for (let i = 0; i < data.length; i++) {
-    const x = i * barWidth
-    const amplitude = (data[i] / maxAmplitude) * (height / 2)
-    const y = height / 2 + (i % 2 === 0 ? amplitude : -amplitude)
-
-    if (i === 0) {
-      ctx.moveTo(x, y)
-    } else {
-      ctx.lineTo(x, y)
-    }
+  for (let i = 0; i < barCount; i++) {
+    const dataIndex = Math.floor((i / barCount) * data.length)
+    const amplitude = data[dataIndex] / maxAmplitude
+    const x = i * (barWidth + gap)
+    const barHeight = Math.max(height * 0.2, height * amplitude * 0.8)
+    ctx.fillRect(x, (height - barHeight) / 2, barWidth, barHeight)
   }
-  ctx.stroke()
+}
+
+/**
+ * Stop recording (red circle button)
+ */
+function stopRecording() {
+  electronAPI?.notifyRecordingStopped?.()
+}
+
+/**
+ * Cancel recording (X button)
+ */
+function cancelRecording() {
+  electronAPI?.notifyRecordingStopped?.()
 }
 
 /**
  * Handle overlay show event
  */
-function handleOverlayShow(data: { mode: string; enableScreenCapture: boolean }) {
-  console.log('[Overlay] Show:', data)
-  currentMode.value = data.mode
-  screenCaptureEnabled.value = data.enableScreenCapture
-  isVisible.value = true
+function handleOverlayShow() {
+  console.log('[Overlay] Show')
+  isRecording.value = true
 }
 
 /**
@@ -145,7 +117,7 @@ function handleOverlayShow(data: { mode: string; enableScreenCapture: boolean })
  */
 function handleOverlayHide() {
   console.log('[Overlay] Hide')
-  isVisible.value = false
+  isRecording.value = false
   waveformData.value = []
 }
 
@@ -161,11 +133,11 @@ function handleWaveformUpdate(data: number[]) {
  * Lifecycle
  */
 onMounted(() => {
-  // Setup canvas size
+  // Setup canvas size (compact like Wispr)
   const canvas = waveformCanvas.value
   if (canvas) {
-    canvas.width = 360
-    canvas.height = 60
+    canvas.width = 150
+    canvas.height = 20
     drawWaveform()
   }
 
@@ -180,111 +152,95 @@ watch(waveformData, drawWaveform)
 </script>
 
 <style scoped>
-/* Ebben POC Design System */
+/* Wispr Flow-style minimal overlay */
 .overlay-container {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  z-index: 9999;
+}
+
+/* Idle state: tiny hollow dash with dots */
+.overlay-idle {
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  padding: 8px 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.idle-dots {
   display: flex;
+  gap: 6px;
   align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.2s ease;
 }
 
-.overlay-container.visible {
-  opacity: 1;
+.dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.4);
 }
 
-.overlay-card {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(20px);
-  border-radius: 16px;
-  padding: 20px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  min-width: 400px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.mode-indicator {
+/* Recording state: compact waveform bar */
+.overlay-recording {
+  background: rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(10px);
+  border-radius: 24px;
+  padding: 12px 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.mode-icon {
-  font-size: 32px;
-  line-height: 1;
+.stop-button {
+  background: transparent;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.1s, opacity 0.2s;
 }
 
-.mode-text {
-  flex: 1;
+.stop-button:hover {
+  transform: scale(1.1);
+  opacity: 0.8;
 }
 
-.mode-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: #1a202c;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
-}
-
-.mode-subtitle {
-  font-size: 13px;
-  color: #718096;
-  margin-top: 2px;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
-}
-
-.waveform-container {
-  padding: 8px 0;
+.stop-button:active {
+  transform: scale(0.95);
 }
 
 .waveform {
-  width: 100%;
-  height: 60px;
+  width: 150px;
+  height: 20px;
   display: block;
 }
 
-.screen-indicator {
+.cancel-button {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  padding: 4px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: linear-gradient(135deg, #667EEA 0%, #64B5F6 100%);
-  border-radius: 8px;
-  color: white;
+  justify-content: center;
+  transition: color 0.2s, transform 0.1s;
 }
 
-.screen-icon {
-  font-size: 16px;
-  line-height: 1;
+.cancel-button:hover {
+  color: rgba(255, 255, 255, 0.9);
+  transform: scale(1.1);
 }
 
-.screen-text {
-  font-size: 13px;
-  font-weight: 500;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
-}
-
-/* Dark mode support */
-@media (prefers-color-scheme: dark) {
-  .overlay-card {
-    background: rgba(26, 32, 44, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .mode-title {
-    color: #f7fafc;
-  }
-
-  .mode-subtitle {
-    color: #a0aec0;
-  }
+.cancel-button:active {
+  transform: scale(0.95);
 }
 </style>

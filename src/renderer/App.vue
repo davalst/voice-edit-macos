@@ -1,97 +1,206 @@
 <template>
   <div class="app">
-    <!-- Header -->
-    <header class="header">
-      <h1>🎤 Voice Edit</h1>
-      <p class="subtitle">Intelligent voice-controlled text editing for macOS</p>
-    </header>
-
-    <!-- Recording Status -->
-    <div class="status-section">
-      <div :class="['status-indicator', { recording: isRecording }]">
-        <div class="status-dot"></div>
-        <span class="status-text">{{ isRecording ? 'Recording...' : 'Ready' }}</span>
+    <!-- Sidebar Navigation (Wispr Flow style) -->
+    <aside class="sidebar">
+      <!-- App Header -->
+      <div class="app-header">
+        <div class="app-logo">
+          <span class="logo-icon">🎤</span>
+          <span class="app-name">Voice Edit</span>
+        </div>
       </div>
 
-      <button @click="() => toggleRecording()" class="primary-button">
-        {{ isRecording ? 'Stop Recording' : 'Start Recording' }}
-      </button>
+      <!-- Main Navigation -->
+      <nav class="main-nav">
+        <a
+          v-for="item in mainNavItems"
+          :key="item.id"
+          :class="['nav-item', { active: currentView === item.id }]"
+          @click="currentView = item.id"
+        >
+          <span class="nav-icon">{{ item.icon }}</span>
+          <span class="nav-label">{{ item.label }}</span>
+        </a>
+      </nav>
 
-      <p class="hint">
-        Press <kbd>{{ hotkey }}</kbd> to {{ isRecording ? 'stop' : 'start' }} recording
-      </p>
-    </div>
+      <!-- Settings Navigation -->
+      <nav class="settings-nav">
+        <div class="nav-section-label">SETTINGS</div>
+        <a
+          v-for="item in settingsNavItems"
+          :key="item.id"
+          :class="['nav-item', { active: currentView === item.id }]"
+          @click="currentView = item.id"
+        >
+          <span class="nav-icon">{{ item.icon }}</span>
+          <span class="nav-label">{{ item.label }}</span>
+        </a>
+      </nav>
 
-    <!-- Screen Sharing Status -->
-    <div v-if="isScreenSharing" class="info-box">
-      <span class="icon">📺</span>
-      <span>Screen sharing active</span>
-    </div>
-
-    <!-- Last Command -->
-    <div v-if="lastCommand" class="last-command">
-      <div class="label">Last command:</div>
-      <div class="command-text">"{{ lastCommand }}"</div>
-      <div v-if="lastResult" class="result-preview">
-        {{ lastResult }}
+      <!-- Footer -->
+      <div class="sidebar-footer">
+        <div class="version">Voice Edit v1.0.0</div>
       </div>
-    </div>
+    </aside>
 
-    <!-- Settings -->
-    <div class="settings-section">
-      <h2>Settings</h2>
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Home View -->
+      <div v-if="currentView === 'home'" class="view">
+        <header class="view-header">
+          <h1>Welcome back</h1>
+        </header>
 
-      <div class="setting-item">
-        <label>Gemini API Key:</label>
-        <input
-          v-model="apiKey"
-          type="password"
-          placeholder="Enter your Gemini API key"
-          @blur="saveSettings"
-        />
+        <div class="activity-feed">
+          <div class="feed-header">
+            <h2>Recent Activity</h2>
+          </div>
+
+          <div v-if="lastCommand" class="activity-item">
+            <div class="activity-time">Just now</div>
+            <div class="activity-content">
+              <div class="activity-command">"{{ lastCommand }}"</div>
+              <div v-if="lastResult" class="activity-result">{{ lastResult }}</div>
+            </div>
+          </div>
+
+          <div v-else class="empty-state">
+            <div class="empty-icon">🎤</div>
+            <div class="empty-title">No activity yet</div>
+            <div class="empty-description">Press Fn and speak to get started</div>
+          </div>
+        </div>
       </div>
 
-      <div class="setting-item">
-        <label>Hotkey:</label>
-        <select v-model="hotkey" @change="saveSettings">
-          <option value="Control+Space">Control+Space</option>
-          <option value="Command+Space">⌘+Space</option>
-          <option value="CommandOrControl+Shift+Space">⌘+Shift+Space</option>
-          <option value="CommandOrControl+Shift+V">⌘+Shift+V</option>
-          <option value="Control+Alt+Space">Ctrl+Alt+Space</option>
-          <option value="F13">F13</option>
-          <option value="F14">F14</option>
-          <option value="F15">F15</option>
-        </select>
+      <!-- Dictionary View -->
+      <div v-else-if="currentView === 'dictionary'" class="view">
+        <header class="view-header">
+          <h1>Dictionary</h1>
+          <button class="primary-button">Add new</button>
+        </header>
+
+        <div class="empty-state">
+          <div class="empty-icon">📖</div>
+          <div class="empty-title">No custom words yet</div>
+          <div class="empty-description">Add words and names for better recognition</div>
+        </div>
       </div>
 
-      <div class="setting-item">
-        <label>
-          <input type="checkbox" v-model="screenSharingEnabled" @change="saveSettings" />
-          Enable screen sharing (multimodal)
-        </label>
+      <!-- Snippets View -->
+      <div v-else-if="currentView === 'snippets'" class="view">
+        <header class="view-header">
+          <h1>Snippets</h1>
+          <button class="primary-button">Add new</button>
+        </header>
+
+        <div class="empty-state">
+          <div class="empty-icon">✂️</div>
+          <div class="empty-title">No snippets yet</div>
+          <div class="empty-description">Save shortcuts to expand text instantly</div>
+        </div>
       </div>
 
-      <div class="setting-item">
-        <label>
-          <input type="checkbox" v-model="launchAtLogin" @change="saveSettings" />
-          Launch at login
-        </label>
-      </div>
-    </div>
+      <!-- General Settings View -->
+      <div v-else-if="currentView === 'settings-general'" class="view">
+        <header class="view-header">
+          <h1>General</h1>
+        </header>
 
-    <!-- Footer -->
-    <footer class="footer">
-      <a href="#" @click.prevent="showHelp">Help</a>
-      <span>•</span>
-      <a href="#" @click.prevent="showAbout">About</a>
-    </footer>
+        <div class="settings-content">
+          <div class="setting-section">
+            <h3>Keyboard shortcuts</h3>
+            <p class="setting-description">Hold <strong>fn</strong> and speak. <a href="#">Learn more →</a></p>
+            <div class="setting-value">
+              <button class="change-button">Change</button>
+            </div>
+          </div>
+
+          <div class="setting-section">
+            <h3>Gemini API Key</h3>
+            <p class="setting-description">Your AI model API key for voice processing</p>
+            <div class="setting-input">
+              <input
+                v-model="apiKey"
+                type="password"
+                placeholder="Enter your Gemini API key"
+                @blur="saveSettings"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- System Settings View -->
+      <div v-else-if="currentView === 'settings-system'" class="view">
+        <header class="view-header">
+          <h1>System</h1>
+        </header>
+
+        <div class="settings-content">
+          <div class="setting-section">
+            <h3>App settings</h3>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">Launch app at login</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" v-model="launchAtLogin" @change="saveSettings" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">Enable screen sharing (multimodal)</div>
+              <div class="setting-hint">Allows AI to see your screen for context</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" v-model="screenSharingEnabled" @change="saveSettings" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Experimental Settings View -->
+      <div v-else-if="currentView === 'settings-experimental'" class="view">
+        <header class="view-header">
+          <h1>Experimental</h1>
+        </header>
+
+        <div class="settings-content">
+          <div class="empty-state">
+            <div class="empty-icon">🧪</div>
+            <div class="empty-title">No experimental features</div>
+            <div class="empty-description">Check back later for beta features</div>
+          </div>
+        </div>
+      </div>
+    </main>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useVoiceEdit } from './composables/useVoiceEdit'
+
+// Current view
+const currentView = ref('home')
+
+// Navigation items
+const mainNavItems = [
+  { id: 'home', icon: '🏠', label: 'Home' },
+  { id: 'dictionary', icon: '📖', label: 'Dictionary' },
+  { id: 'snippets', icon: '✂️', label: 'Snippets' },
+]
+
+const settingsNavItems = [
+  { id: 'settings-general', icon: '⚙️', label: 'General' },
+  { id: 'settings-system', icon: '💻', label: 'System' },
+  { id: 'settings-experimental', icon: '🧪', label: 'Experimental' },
+]
 
 // Settings
 const apiKey = ref('')
@@ -118,7 +227,6 @@ function toggleRecording(context?: { selectedText?: string; focusedAppName?: str
   if (isRecording.value) {
     stopRecording()
   } else {
-    // Pass pre-captured context to startRecording
     startRecording(context?.selectedText, context?.focusedAppName)
   }
 }
@@ -164,20 +272,6 @@ async function saveSettings() {
 }
 
 /**
- * Show help dialog
- */
-function showHelp() {
-  alert('Voice Edit Help\n\nPress the configured hotkey to start recording.\nSpeak your editing command.\nPause for 1.5 seconds to process.\n\nSupported commands:\n- "make this shorter"\n- "translate to Spanish"\n- "find all mentions of X"\n- "what does this mean?"')
-}
-
-/**
- * Show about dialog
- */
-function showAbout() {
-  alert('Voice Edit v1.0.0\n\nIntelligent voice-controlled text editing for macOS.\n\nPowered by Google Gemini 2.0 Flash.')
-}
-
-/**
  * Lifecycle
  */
 onMounted(async () => {
@@ -192,7 +286,6 @@ onMounted(async () => {
   if (electronAPI) {
     // Legacy Control+Space hotkey (toggle mode)
     electronAPI.onToggleRecording((_event: any, context: { selectedText: string; focusedAppName: string }) => {
-      // Pass pre-captured context to toggle function
       toggleRecording(context)
     })
 
@@ -211,64 +304,280 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* Wispr Flow-inspired Design System */
 .app {
-  max-width: 400px;
-  margin: 0 auto;
+  display: flex;
+  height: 100vh;
+  background: #f9fafb;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 260px;
+  background: #ffffff;
+  border-right: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.app-header {
   padding: 20px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  border-bottom: 1px solid #f3f4f6;
 }
 
-.header {
-  text-align: center;
-  margin-bottom: 30px;
-}
-
-.header h1 {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 600;
-}
-
-.subtitle {
-  margin: 5px 0 0;
-  font-size: 12px;
-  color: #666;
-}
-
-.status-section {
-  text-align: center;
-  margin-bottom: 30px;
-}
-
-.status-indicator {
+.app-logo {
   display: flex;
   align-items: center;
-  justify-content: center;
-  margin-bottom: 20px;
   gap: 10px;
 }
 
-.status-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #28a745;
-  animation: pulse 2s infinite;
+.logo-icon {
+  font-size: 24px;
 }
 
-.status-indicator.recording .status-dot {
-  background: #dc3545;
+.app-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2937;
 }
 
-.status-text {
-  font-size: 16px;
+.main-nav, .settings-nav {
+  padding: 16px;
+}
+
+.nav-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  padding: 0 12px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-decoration: none;
+}
+
+.nav-item:hover {
+  background: #f3f4f6;
+  color: #1f2937;
+}
+
+.nav-item.active {
+  background: #f3f4f6;
+  color: #1f2937;
   font-weight: 500;
 }
 
+.nav-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.nav-label {
+  font-size: 14px;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 20px;
+  border-top: 1px solid #f3f4f6;
+}
+
+.version {
+  font-size: 12px;
+  color: #9ca3af;
+  text-align: center;
+}
+
+/* Main Content */
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 40px;
+}
+
+.view {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.view-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+}
+
+.view-header h1 {
+  font-size: 32px;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0;
+}
+
 .primary-button {
-  padding: 12px 24px;
-  background: #007bff;
+  padding: 10px 20px;
+  background: #1f2937;
   color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.primary-button:hover {
+  background: #111827;
+}
+
+/* Activity Feed */
+.activity-feed {
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+}
+
+.feed-header {
+  padding: 20px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.feed-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.activity-item {
+  padding: 20px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.activity-item:last-child {
+  border-bottom: none;
+}
+
+.activity-time {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-bottom: 8px;
+}
+
+.activity-command {
+  font-size: 15px;
+  color: #1f2937;
+  margin-bottom: 8px;
+  font-style: italic;
+}
+
+.activity-result {
+  font-size: 13px;
+  color: #6b7280;
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 6px;
+}
+
+/* Empty States */
+.empty-state {
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.empty-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 8px;
+}
+
+.empty-description {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+/* Settings */
+.settings-content {
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  padding: 24px;
+}
+
+.setting-section {
+  margin-bottom: 32px;
+}
+
+.setting-section:last-child {
+  margin-bottom: 0;
+}
+
+.setting-section h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 8px 0;
+}
+
+.setting-description {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0 0 16px 0;
+}
+
+.setting-description strong {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.setting-description a {
+  color: #3b82f6;
+  text-decoration: none;
+}
+
+.setting-description a:hover {
+  text-decoration: underline;
+}
+
+.setting-input input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.setting-input input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.change-button {
+  padding: 8px 16px;
+  background: #f3f4f6;
+  color: #1f2937;
   border: none;
   border-radius: 6px;
   font-size: 14px;
@@ -276,131 +585,80 @@ onMounted(async () => {
   cursor: pointer;
 }
 
-.primary-button:hover {
-  background: #0056b3;
+.change-button:hover {
+  background: #e5e7eb;
 }
 
-.hint {
-  margin-top: 10px;
-  font-size: 12px;
-  color: #666;
-}
-
-kbd {
-  padding: 2px 6px;
-  background: #f5f5f5;
-  border: 1px solid #ccc;
-  border-radius: 3px;
-  font-family: monospace;
-  font-size: 11px;
-}
-
-.info-box {
+.setting-row {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  padding: 10px;
-  background: #e7f3ff;
-  border-radius: 6px;
-  margin-bottom: 20px;
+  padding: 16px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.setting-row:last-child {
+  border-bottom: none;
+}
+
+.setting-info {
+  flex: 1;
+}
+
+.setting-label {
+  font-size: 15px;
+  color: #1f2937;
+  margin-bottom: 4px;
+}
+
+.setting-hint {
   font-size: 13px;
+  color: #6b7280;
 }
 
-.icon {
-  font-size: 16px;
+/* Toggle Switch */
+.toggle {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  cursor: pointer;
 }
 
-.last-command {
-  padding: 15px;
-  background: #f8f9fa;
-  border-radius: 6px;
-  margin-bottom: 30px;
+.toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
 }
 
-.label {
-  font-size: 12px;
-  color: #666;
-  margin-bottom: 5px;
+.toggle-slider {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #d1d5db;
+  border-radius: 24px;
+  transition: 0.3s;
 }
 
-.command-text {
-  font-size: 14px;
-  font-style: italic;
-  margin-bottom: 10px;
+.toggle-slider:before {
+  content: '';
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  border-radius: 50%;
+  transition: 0.3s;
 }
 
-.result-preview {
-  font-size: 12px;
-  color: #333;
-  padding: 8px;
-  background: white;
-  border-radius: 4px;
-  max-height: 100px;
-  overflow-y: auto;
+.toggle input:checked + .toggle-slider {
+  background-color: #10b981;
 }
 
-.settings-section {
-  margin-bottom: 30px;
-}
-
-.settings-section h2 {
-  font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 15px;
-}
-
-.setting-item {
-  margin-bottom: 15px;
-}
-
-.setting-item label {
-  display: block;
-  font-size: 13px;
-  margin-bottom: 5px;
-  color: #333;
-}
-
-.setting-item input[type='text'],
-.setting-item input[type='password'],
-.setting-item select {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 13px;
-}
-
-.setting-item input[type='checkbox'] {
-  margin-right: 8px;
-}
-
-.footer {
-  text-align: center;
-  padding-top: 20px;
-  border-top: 1px solid #eee;
-  font-size: 12px;
-  color: #666;
-}
-
-.footer a {
-  color: #007bff;
-  text-decoration: none;
-}
-
-.footer a:hover {
-  text-decoration: underline;
-}
-
-.footer span {
-  margin: 0 10px;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+.toggle input:checked + .toggle-slider:before {
+  transform: translateX(20px);
 }
 </style>

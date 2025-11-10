@@ -27,12 +27,15 @@ export class OverlayManager {
     const primaryDisplay = screen.getPrimaryDisplay()
     const { width, height } = primaryDisplay.workAreaSize
 
-    // Create overlay window - centered on screen
+    // Create overlay window - tiny at bottom center (Wispr style)
+    const overlayWidth = 250
+    const overlayHeight = 80
+
     this.overlayWindow = new BrowserWindow({
-      width: 400,
-      height: 120,
-      x: Math.floor((width - 400) / 2),
-      y: Math.floor((height - 120) / 2),
+      width: overlayWidth,
+      height: overlayHeight,
+      x: Math.floor((width - overlayWidth) / 2),
+      y: height - overlayHeight - 60, // 60px from bottom
       frame: false,
       transparent: true,
       alwaysOnTop: true,
