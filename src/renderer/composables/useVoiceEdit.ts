@@ -187,27 +187,33 @@ export function useVoiceEdit() {
 
       console.log('[VoiceEdit] 📤 Recording config:')
       console.log('  - Mode:', config.mode)
-      console.log('  - Screen capture:', config.enableScreenCapture)
+      console.log('  - Screen capture enabled:', config.enableScreenCapture)
       console.log('  - Selected text:', selectedText.value?.substring(0, 100) || '(none)')
       console.log('  - Focused app:', focusedAppName.value)
 
       getElectronAPI()?.log?.(`[Renderer] Starting ${config.mode}, screen=${config.enableScreenCapture}`)
 
-      // CRITICAL FIX: Always start screen sharing during recording (matches working commit 6484dd9)
-      // The working code ALWAYS sends screen frames for better context
-      // This is essential for Gemini to understand visual context
-      console.log('[VoiceEdit] Starting screen capture')
-      getElectronAPI()?.log?.('[Renderer] Starting screen capture (required for Gemini context)')
+      // ✅ FIXED: Respect the enableScreenCapture flag for dual-mode support
+      // Fn only (STT) → enableScreenCapture: false (mic only)
+      // Fn+Ctrl (Multimodal) → enableScreenCapture: true (mic + screen)
+      if (config.enableScreenCapture) {
+        console.log('[VoiceEdit] 🎥 Starting screen capture (multimodal mode)')
+        getElectronAPI()?.log?.('[Renderer] Starting screen capture for multimodal mode')
 
-      // Stop any existing screen sharing first
-      if (videoFrameCapturer) {
-        stopScreenSharing()
+        // Stop any existing screen sharing first
+        if (videoFrameCapturer) {
+          stopScreenSharing()
+        }
+
+        // Start screen capture (focusedAppName can be empty for full screen)
+        await startScreenSharing(focusedAppName.value || undefined)
+        console.log('[VoiceEdit] ✅ Screen capture active')
+      } else {
+        console.log('[VoiceEdit] 🎤 STT mode - NO screen capture (audio only)')
+        getElectronAPI()?.log?.('[Renderer] STT mode - screen capture disabled')
       }
 
-      // Always capture screen during recording (focusedAppName can be empty for full screen)
-      await startScreenSharing(focusedAppName.value || undefined)
-
-      // Now start audio recording
+      // Start audio recording
       await startAudioRecording()
     } catch (error: any) {
       console.error('[VoiceEdit] Failed to start recording:', error.message)
