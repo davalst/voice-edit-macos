@@ -505,17 +505,17 @@ export function useVoiceEdit() {
   }
 
   /**
-   * Enter RECORD MODE (idle, waiting for Function+`)
+   * Enter RECORD MODE (idle, waiting for Fn key)
    */
   function enterRecordMode(preCapturedText?: string, appName?: string) {
-    console.log('[VoiceEdit] Entering RECORD MODE (press Function+` to talk)')
-    electronAPI?.log?.('[Renderer] Entered RECORD MODE - waiting for Function+`')
+    console.log('[VoiceEdit] Entering RECORD MODE (hold Fn to talk)')
+    electronAPI?.log?.('[Renderer] Entered RECORD MODE - waiting for Fn key')
 
     inRecordMode.value = true
     selectedText.value = preCapturedText || ''
     focusedAppName.value = appName || ''
 
-    // Notify main process to register F5 global shortcut
+    // Notify main process to start Fn key monitoring
     electronAPI?.notifyRecordModeEntered?.()
   }
 
@@ -535,12 +535,12 @@ export function useVoiceEdit() {
     selectedText.value = ''
     focusedAppName.value = ''
 
-    // Notify main process to unregister F5 global shortcut
+    // Notify main process to stop Fn key monitoring
     electronAPI?.notifyRecordModeExited?.()
   }
 
   /**
-   * Manually trigger silence processing (called on F5 release)
+   * Manually trigger silence processing (called on Fn key release)
    */
   async function manualTriggerProcessing() {
     if (!geminiAdapter || !isRecording.value) {
@@ -555,8 +555,8 @@ export function useVoiceEdit() {
     }
 
     isProcessing.value = true
-    console.log('[VoiceEdit] 🎯 F5 released - manually triggering processing')
-    electronAPI?.log?.('[Renderer] F5 released - triggering processing')
+    console.log('[VoiceEdit] 🎯 Fn released - manually triggering processing')
+    electronAPI?.log?.('[Renderer] Fn released - triggering processing')
 
     try {
       // Build context message (same as silence detection)

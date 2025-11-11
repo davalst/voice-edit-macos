@@ -387,37 +387,62 @@ ipcMain.on('recording-stopped', () => {
   updateTrayStatus(false)
 })
 
-// Track Function+` state for push-to-talk
-let pttIsRecording = false
+// Track Fn key state for push-to-talk
+let previousFnState = false
+let inRecordModeGlobal = false
 
-// Enter RECORD MODE (register Function+` for push-to-talk)
+// Enter RECORD MODE (start native Fn key monitoring)
 ipcMain.on('record-mode-entered', () => {
-  console.log('[Main] RECORD MODE entered - registering Function+` push-to-talk')
-  pttIsRecording = false // Reset state
+  console.log('[Main] RECORD MODE entered - starting Fn key monitoring for push-to-talk')
+  inRecordModeGlobal = true
+  previousFnState = false
 
-  // Register Function+` (Fn+`) as global shortcut (only when in RECORD MODE)
-  // NOTE: globalShortcut only fires on keydown, so we toggle on each press
-  const pttSuccess = globalShortcut.register('CommandOrControl+`', () => {
-    console.log('[Main] Function+` pressed (global shortcut)')
-    pttIsRecording = !pttIsRecording
-    mainWindow?.webContents.send('ptt-pressed', { isRecording: pttIsRecording })
+  // Initialize key monitor if not already done
+  if (!keyMonitor) {
+    keyMonitor = new KeyMonitor()
+  }
+
+  // Set up Fn key press/release handlers
+  keyMonitor.on('keyStateChange', (event: { fnPressed: boolean; ctrlPressed: boolean; timestamp: number }) => {
+    // Only process Fn key events when in RECORD MODE
+    if (!inRecordModeGlobal) return
+
+    // Detect Fn key state changes
+    if (event.fnPressed !== previousFnState) {
+      if (event.fnPressed) {
+        // Fn pressed - start recording
+        console.log('[Main] Fn PRESSED - starting recording')
+        mainWindow?.webContents.send('ptt-pressed', { isRecording: true })
+      } else {
+        // Fn released - stop and process
+        console.log('[Main] Fn RELEASED - stopping and processing')
+        mainWindow?.webContents.send('ptt-pressed', { isRecording: false })
+      }
+      previousFnState = event.fnPressed
+    }
   })
 
-  if (pttSuccess) {
-    console.log('[Main] ✅ Function+` registered as global shortcut')
+  // Start monitoring
+  const success = keyMonitor.start()
+  if (success) {
+    console.log('[Main] ✅ Fn key monitoring started for push-to-talk')
   } else {
-    console.error('[Main] ❌ Failed to register Function+` shortcut')
+    console.error('[Main] ❌ Failed to start Fn key monitoring')
+    console.error('[Main] Please grant Accessibility permissions in System Preferences')
   }
 })
 
-// Exit RECORD MODE (unregister Function+`)
+// Exit RECORD MODE (stop native Fn key monitoring)
 ipcMain.on('record-mode-exited', () => {
-  console.log('[Main] RECORD MODE exited - unregistering Function+`')
+  console.log('[Main] RECORD MODE exited - stopping Fn key monitoring')
+  inRecordModeGlobal = false
+  previousFnState = false
 
-  // Unregister Function+` shortcut
-  if (globalShortcut.isRegistered('CommandOrControl+`')) {
-    globalShortcut.unregister('CommandOrControl+`')
-    console.log('[Main] ✅ Function+` unregistered')
+  // Stop monitoring
+  if (keyMonitor) {
+    keyMonitor.stop()
+    keyMonitor.removeAllListeners()
+    console.log('[Main] ✅ Fn key monitoring stopped')
   }
 })
 

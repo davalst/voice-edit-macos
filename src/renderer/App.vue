@@ -341,7 +341,7 @@ function toggleRecording(context?: { selectedText?: string; focusedAppName?: str
     addLog('info', '⏸️ Exiting RECORD MODE...')
     exitRecordMode()
   } else {
-    addLog('info', '▶️ Entering RECORD MODE (press Function+` to talk)...')
+    addLog('info', '▶️ Entering RECORD MODE (hold Fn to talk)...')
     enterRecordMode(context?.selectedText, context?.focusedAppName)
   }
 }
@@ -443,23 +443,22 @@ onMounted(async () => {
       stopRecording()
     })
 
-    // Function+` Push-to-Talk handler (triggered by global shortcut from main process)
-    // NOTE: globalShortcut only fires on keydown, so main process toggles state
+    // Fn Key Push-to-Talk handler (triggered by native key monitor from main process)
     electronAPI.onPttPressed(async (data: { isRecording: boolean }) => {
-      console.log('[App] Function+` pressed (global shortcut), should record:', data.isRecording)
+      console.log('[App] Fn key event, should record:', data.isRecording)
 
       if (!inRecordMode.value) {
-        console.log('[App] Not in RECORD MODE, ignoring Function+`')
+        console.log('[App] Not in RECORD MODE, ignoring Fn key')
         return
       }
 
       if (data.isRecording) {
-        // Function+` pressed - start recording
-        addLog('info', '🎤 Function+` pressed - starting recording...')
+        // Fn pressed - start recording
+        addLog('info', '🎤 Fn pressed - starting recording...')
         await startRecording()
       } else {
-        // Function+` pressed again - stop and process
-        addLog('info', '🎤 Function+` released - processing...')
+        // Fn released - stop and process
+        addLog('info', '🎤 Fn released - processing...')
         stopRecording()
         await manualTriggerProcessing()
       }
