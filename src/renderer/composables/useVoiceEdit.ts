@@ -111,12 +111,13 @@ export function useVoiceEdit() {
         outputText = '' // Reset for next response
         audioChunks = [] // Reset audio chunks
 
-        // CRITICAL FIX: Add delay before resetting isProcessing (like Ebben POC)
-        // This prevents VAD from triggering too quickly after paste
+        // CRITICAL FIX: Add delay before resetting isProcessing
+        // This prevents rapid re-triggering (matches working commit 6484dd9)
+        // The paste operation needs time to complete before accepting new input
         setTimeout(() => {
           isProcessing.value = false
           console.log('[VoiceEdit] ✅ Ready for next command')
-        }, 100)
+        }, 500) // Increased from 100ms to 500ms to match working code timing
       })
 
       geminiAdapter.on('error', (error: Error) => {
@@ -191,25 +192,19 @@ export function useVoiceEdit() {
 
       getElectronAPI()?.log?.(`[Renderer] Starting ${config.mode}, screen=${config.enableScreenCapture}`)
 
-      // SECURITY: Start screen sharing ONLY if mode requires it
-      // - STT_SCREEN_HOLD: Fn+Ctrl held = screen ON
-      // - STT_SCREEN_TOGGLE: Double-tap Fn+Ctrl = screen ON
-      // - STT_ONLY_HOLD: Fn held = screen OFF
-      // - STT_ONLY_TOGGLE: Double-tap Fn = screen OFF
-      if (config.enableScreenCapture && focusedAppName.value) {
-        console.log('[VoiceEdit] Starting screen capture for target app:', focusedAppName.value)
-        getElectronAPI()?.log?.(`[Renderer] Screen capture enabled: ${focusedAppName.value}`)
+      // CRITICAL FIX: Always start screen sharing during recording (matches working commit 6484dd9)
+      // The working code ALWAYS sends screen frames for better context
+      // This is essential for Gemini to understand visual context
+      console.log('[VoiceEdit] Starting screen capture')
+      getElectronAPI()?.log?.('[Renderer] Starting screen capture (required for Gemini context)')
 
-        // Stop any existing screen sharing first
-        if (videoFrameCapturer) {
-          stopScreenSharing()
-        }
-
-        await startScreenSharing(focusedAppName.value)
-      } else {
-        console.log('[VoiceEdit] Screen capture disabled for this mode')
-        getElectronAPI()?.log?.('[Renderer] Screen capture OFF (STT-only mode)')
+      // Stop any existing screen sharing first
+      if (videoFrameCapturer) {
+        stopScreenSharing()
       }
+
+      // Always capture screen during recording (focusedAppName can be empty for full screen)
+      await startScreenSharing(focusedAppName.value || undefined)
 
       // Now start audio recording
       await startAudioRecording()
