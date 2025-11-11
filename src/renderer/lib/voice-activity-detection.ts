@@ -98,6 +98,18 @@ export class VoiceActivityDetector {
       // 5. We haven't already fired for this silence period
       const silenceDurationMs = Date.now() - this.lastSpeechTime
 
+      // DEBUG: Log current state every second during silence
+      if (this.wasSpeaking && silenceDurationMs % 1000 < 100) {
+        console.log('[VAD] 🔍 Silence state check:', {
+          wasSpeaking: this.wasSpeaking,
+          speechDuration: `${Math.round(this.totalSpeechDuration)}ms (need ${this.minSpeechDuration}ms)`,
+          peakEnergy: `${this.peakEnergyDuringSpeech.toFixed(3)} (need ${this.minPeakEnergy})`,
+          silenceDuration: `${Math.round(silenceDurationMs)}ms (need ${this.silenceDuration}ms)`,
+          alreadyFired: this.silenceAlreadyFired,
+          timerNull: this.silenceTimer === null
+        })
+      }
+
       if (
         this.wasSpeaking &&
         this.totalSpeechDuration >= this.minSpeechDuration &&
