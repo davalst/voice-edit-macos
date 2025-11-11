@@ -387,8 +387,9 @@ ipcMain.on('recording-stopped', () => {
   updateTrayStatus(false)
 })
 
-// Track Fn key state for push-to-talk
+// Track Fn and Ctrl key states for dual-mode push-to-talk
 let previousFnState = false
+let previousCtrlState = false
 let inRecordModeGlobal = false
 
 // Enter RECORD MODE (start native Fn key monitoring)
@@ -396,13 +397,14 @@ ipcMain.on('record-mode-entered', () => {
   console.log('[Main] RECORD MODE entered - starting Fn key monitoring for push-to-talk')
   inRecordModeGlobal = true
   previousFnState = false
+  previousCtrlState = false
 
   // Initialize key monitor if not already done
   if (!keyMonitor) {
     keyMonitor = new KeyMonitor()
   }
 
-  // Set up Fn key press/release handlers
+  // Set up Fn key press/release handlers with dual-mode support
   keyMonitor.on('keyStateChange', (event: { fnPressed: boolean; ctrlPressed: boolean; timestamp: number }) => {
     // Only process Fn key events when in RECORD MODE
     if (!inRecordModeGlobal) return
@@ -410,15 +412,38 @@ ipcMain.on('record-mode-entered', () => {
     // Detect Fn key state changes
     if (event.fnPressed !== previousFnState) {
       if (event.fnPressed) {
-        // Fn pressed - start recording
-        console.log('[Main] Fn PRESSED - starting recording')
-        mainWindow?.webContents.send('ptt-pressed', { isRecording: true })
+        // ✅ Fn pressed - check if Ctrl is also pressed to determine mode
+        if (event.ctrlPressed) {
+          // Fn+Ctrl pressed - START MULTIMODAL MODE (mic + screen)
+          console.log('[Main] Fn+Ctrl PRESSED - starting multimodal mode')
+          mainWindow?.webContents.send('ptt-pressed', {
+            isRecording: true,
+            mode: 'multimodal'  // ← Send mode parameter to renderer
+          })
+        } else {
+          // Fn only pressed - START STT MODE (mic only, no screen)
+          console.log('[Main] Fn PRESSED - starting STT mode')
+          mainWindow?.webContents.send('ptt-pressed', {
+            isRecording: true,
+            mode: 'stt'  // ← Send mode parameter to renderer
+          })
+        }
       } else {
-        // Fn released - stop and process
+        // Fn released - STOP AND PROCESS
         console.log('[Main] Fn RELEASED - stopping and processing')
         mainWindow?.webContents.send('ptt-pressed', { isRecording: false })
       }
       previousFnState = event.fnPressed
+    }
+
+    // Optional: Handle Ctrl pressed while Fn still held (upgrade to multimodal)
+    if (event.ctrlPressed !== previousCtrlState) {
+      if (event.ctrlPressed && event.fnPressed) {
+        // Ctrl added while Fn held - upgrade to multimodal
+        console.log('[Main] Ctrl added - upgrading to multimodal mode')
+        mainWindow?.webContents.send('upgrade-to-multimodal')
+      }
+      previousCtrlState = event.ctrlPressed
     }
   })
 
@@ -437,6 +462,7 @@ ipcMain.on('record-mode-exited', () => {
   console.log('[Main] RECORD MODE exited - stopping Fn key monitoring')
   inRecordModeGlobal = false
   previousFnState = false
+  previousCtrlState = false  // Reset Ctrl state as well
 
   // Stop monitoring
   if (keyMonitor) {
