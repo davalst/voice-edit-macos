@@ -402,6 +402,36 @@ ipcMain.on('log', (_event, message: string) => {
   console.log(message)
 })
 
+// Export console logs to file
+ipcMain.handle('export-logs', async (_event, logs: string) => {
+  try {
+    // Create console_logs directory in project root
+    const projectRoot = app.getAppPath().includes('app.asar')
+      ? join(app.getAppPath(), '..', '..', '..', '..')
+      : join(app.getAppPath(), '..', '..')
+    const logsDir = join(projectRoot, 'console_logs')
+
+    if (!existsSync(logsDir)) {
+      mkdirSync(logsDir, { recursive: true })
+    }
+
+    // Create filename with current date and time
+    const now = new Date()
+    const timestamp = now.toISOString().replace(/:/g, '-').replace(/\..+/, '')
+    const filename = `console_${timestamp}.log`
+    const filepath = join(logsDir, filename)
+
+    // Write logs to file
+    appendFileSync(filepath, logs)
+
+    console.log('[Main] Console logs exported to:', filepath)
+    return { success: true, filepath }
+  } catch (error: any) {
+    console.error('[Main] Failed to export logs:', error.message)
+    return { success: false, error: error.message }
+  }
+})
+
 // Get screen sources for screen capture
 ipcMain.handle('get-screen-sources', async (_event, opts: any) => {
   try {

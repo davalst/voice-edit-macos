@@ -196,7 +196,10 @@
           <div class="setting-section">
             <div class="console-header">
               <h3>Console Logs</h3>
-              <button @click="clearConsoleLogs" class="clear-button">Clear</button>
+              <div class="console-buttons">
+                <button @click="exportConsoleLogs" class="export-button">Export</button>
+                <button @click="clearConsoleLogs" class="clear-button">Clear</button>
+              </div>
             </div>
             <div class="console-log" ref="consoleLogContainer">
               <div
@@ -283,6 +286,38 @@ function addLog(level: ConsoleLog['level'], message: string) {
   // Keep only last 100 logs
   if (consoleLogs.value.length > 100) {
     consoleLogs.value.shift()
+  }
+}
+
+/**
+ * Export console logs to file
+ */
+async function exportConsoleLogs() {
+  const electronAPI = (window as any).electronAPI
+  if (!electronAPI?.exportLogs) {
+    console.error('[App] Export logs API not available')
+    return
+  }
+
+  try {
+    // Format logs as text
+    const logsText = consoleLogs.value
+      .map(log => `[${log.time}] ${log.level.toUpperCase()}: ${log.message}`)
+      .join('\n')
+
+    // Call IPC to save file
+    const result = await electronAPI.exportLogs(logsText)
+
+    if (result.success) {
+      console.log('[App] Logs exported successfully to:', result.filepath)
+      alert(`Logs exported to:\n${result.filepath}`)
+    } else {
+      console.error('[App] Failed to export logs:', result.error)
+      alert(`Failed to export logs: ${result.error}`)
+    }
+  } catch (error: any) {
+    console.error('[App] Error exporting logs:', error)
+    alert(`Error exporting logs: ${error.message}`)
   }
 }
 
@@ -816,6 +851,12 @@ onMounted(async () => {
   margin-bottom: 12px;
 }
 
+.console-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.export-button,
 .clear-button {
   padding: 6px 12px;
   background: #f3f4f6;
@@ -827,8 +868,18 @@ onMounted(async () => {
   cursor: pointer;
 }
 
+.export-button:hover,
 .clear-button:hover {
   background: #e5e7eb;
+}
+
+.export-button {
+  background: #3b82f6;
+  color: white;
+}
+
+.export-button:hover {
+  background: #2563eb;
 }
 
 .console-log {
