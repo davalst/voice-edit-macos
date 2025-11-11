@@ -564,7 +564,7 @@ export function useVoiceEdit() {
   /**
    * Enter RECORD MODE (idle, waiting for Fn key)
    */
-  function enterRecordMode(preCapturedText?: string, appName?: string) {
+  function enterRecordMode() {
     console.log('[VoiceEdit] Entering RECORD MODE (hold Fn to talk)')
     getElectronAPI()?.log?.('[Renderer] Entered RECORD MODE - waiting for Fn key')
 
@@ -576,8 +576,6 @@ export function useVoiceEdit() {
     }
 
     inRecordMode.value = true
-    selectedText.value = preCapturedText || ''
-    focusedAppName.value = appName || ''
 
     // Notify main process to start Fn key monitoring
     getElectronAPI()?.notifyRecordModeEntered?.()
@@ -624,25 +622,15 @@ export function useVoiceEdit() {
     getElectronAPI()?.log?.('[Renderer] Fn released - triggering processing')
 
     try {
-      // Build context message (same as silence detection)
-      const contextMessage = `Focus text: "${selectedText.value}"`
-
-      console.log('[VoiceEdit] 📤 Context message:', contextMessage.substring(0, 150))
       console.log('[VoiceEdit] 📊 Recording state:', {
         isRecording: isRecording.value,
         currentMode: currentMode.value,
         isScreenSharing: isScreenSharing.value
       })
-      getElectronAPI()?.log?.(`[Renderer] Context: "${contextMessage.substring(0, 150)}"`)
 
-      // Send context with turnComplete: false
-      geminiAdapter.sendClientContent({
-        turns: [{ text: contextMessage }],
-        turnComplete: false,
-      })
-
+      // No text context needed - video streaming provides visual context for Fn+Ctrl
+      // For Fn only (no screen), Gemini will do pure transcription
       console.log('[VoiceEdit] 📤 Sending turnComplete to Gemini...')
-      // Send turnComplete to trigger Gemini response
       const sent = await geminiAdapter.sendTurnComplete()
       if (sent) {
         console.log('[VoiceEdit] ✅ turnComplete sent, waiting for Gemini response...')

@@ -337,14 +337,14 @@ function clearConsoleLogs() {
 /**
  * Toggle recording on/off
  */
-function toggleRecording(context?: { selectedText?: string; focusedAppName?: string }) {
-  // NEW: Control+Space now toggles RECORD MODE (not recording directly)
+function toggleRecording() {
+  // Control+Space toggles RECORD MODE (not recording directly)
   if (inRecordMode.value) {
     addLog('info', '⏸️ Exiting RECORD MODE...')
     exitRecordMode()
   } else {
     addLog('info', '▶️ Entering RECORD MODE (hold Fn to talk)...')
-    enterRecordMode(context?.selectedText, context?.focusedAppName)
+    enterRecordMode()
   }
 }
 

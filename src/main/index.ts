@@ -319,25 +319,13 @@ app.whenReady().then(async () => {
   // TODO: Fix native module keycode mapping before re-enabling
   // initializeKeyMonitoring()
 
-  // Setup global hotkey (Control+Space - WORKING pattern from commit 6484dd9)
+  // Setup global hotkey (Control+Space - Enter/Exit RECORD_MODE)
   const hotkey = store.get('hotkey') as string
   setupHotkeyManager(hotkey, async () => {
-    console.log('[Main] Hotkey pressed (legacy Control+Space), toggling recording')
+    console.log('[Main] Hotkey pressed (legacy Control+Space), toggling RECORD_MODE')
 
-    // CRITICAL FIX: Capture context BEFORE starting recording
-    // 1. Get focused app name (for window-specific screen capture)
-    // 2. Get selected text (for context)
-    const focusedAppName = await getFocusedAppName()
-    const selectedText = await getSelectedText()
-
-    console.log('[Main] Focused app:', focusedAppName)
-    console.log('[Main] Pre-captured selected text:', selectedText?.substring(0, 50) || '(none)')
-
-    // Send to renderer with pre-captured context
-    mainWindow?.webContents.send('toggle-recording', {
-      selectedText,
-      focusedAppName
-    })
+    // No pre-capture needed - context comes from video streaming during Fn+Ctrl
+    mainWindow?.webContents.send('toggle-recording', {})
   })
 
   // Handle window activation on macOS
