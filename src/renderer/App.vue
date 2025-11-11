@@ -287,10 +287,8 @@ function addLog(level: ConsoleLog['level'], message: string) {
     }
   }, 50)
 
-  // Keep only last 100 logs
-  if (consoleLogs.value.length > 100) {
-    consoleLogs.value.shift()
-  }
+  // NO LIMIT - Keep all logs for debugging
+  // User requested unlimited log retention to see full history
 }
 
 /**
