@@ -407,9 +407,11 @@ ipcMain.on('log', (_event, message: string) => {
 ipcMain.handle('export-logs', async (_event, logs: string) => {
   try {
     // Create console_logs directory in project root
-    const projectRoot = app.getAppPath().includes('app.asar')
+    // In dev mode, use process.cwd() to get the actual project directory
+    // In production, calculate from app.asar location
+    const projectRoot = app.isPackaged
       ? join(app.getAppPath(), '..', '..', '..', '..')
-      : join(app.getAppPath(), '..', '..')
+      : process.cwd()
     const logsDir = join(projectRoot, 'console_logs')
 
     if (!existsSync(logsDir)) {
