@@ -259,11 +259,12 @@ videoFrameCapturer.on('frame', (frameData: string) => {
 
 ## Next Steps - Systematic Debugging
 
-### Step 1: Add Comprehensive Audio Logging ⏳
+### Step 1: Add Comprehensive Audio Logging ✅ **COMPLETED**
 
 **File**: `src/renderer/composables/useVoiceEdit.ts`
+**Commit**: `81f9241`
 
-Add detailed logs in `startAudioRecording()`:
+Added detailed logs in `startAudioRecording()`:
 ```typescript
 console.log('[VoiceEdit] 🎤 === AUDIO RECORDING START ===')
 console.log('[VoiceEdit] Creating AudioRecorder (16kHz)')
@@ -286,7 +287,15 @@ await audioRecorder.start()
 console.log('[VoiceEdit] ✅ Microphone active')
 ```
 
-### Step 2: Add Screen Capture Verification Logging ⏳
+**Changes Made**:
+1. ✅ Added audio recorder instantiation logging
+2. ✅ Added per-chunk logging with count and size
+3. ✅ Added Gemini streaming confirmation logs
+4. ✅ Added microphone capture start/active logs
+5. ✅ Enhanced manualTriggerProcessing with state logging
+6. ✅ Added turnComplete send confirmation
+
+### Step 2: Test Both Modes with Enhanced Logging ⏳ **NEXT**
 
 **Expected Logs**:
 
@@ -309,21 +318,7 @@ console.log('[VoiceEdit] ✅ Microphone active')
 [VoiceEdit] 🎤 === AUDIO RECORDING START ===
 ```
 
-### Step 3: Add Gemini Communication Logging ⏳
-
-**In turnComplete handler**:
-```typescript
-console.log('[VoiceEdit] === PROCESSING START ===')
-console.log('[VoiceEdit] Audio chunks sent:', audioChunkCount)
-console.log('[VoiceEdit] Video frames sent:', frameCount)
-console.log('[VoiceEdit] Context:', contextMessage.substring(0, 200))
-console.log('[VoiceEdit] Sending turnComplete to Gemini...')
-const sent = await geminiAdapter.sendTurnComplete()
-console.log('[VoiceEdit] turnComplete sent:', sent)
-console.log('[VoiceEdit] Waiting for Gemini response...')
-```
-
-### Step 4: Re-test Both Modes 📋
+### Step 3: Re-test Both Modes 📋
 
 **Test 1: Fn only (STT)**
 1. Press Ctrl+Space (enter RECORD_MODE)
@@ -343,7 +338,7 @@ console.log('[VoiceEdit] Waiting for Gemini response...')
 6. Release Fn+Ctrl
 7. **Check logs**
 
-### Step 5: Compare with WORKING_CODE.md 📋
+### Step 4: Compare with WORKING_CODE.md 📋
 
 If still not working, compare implementation with working commit `6484dd9`:
 - Audio recording initialization
@@ -372,7 +367,16 @@ If still not working, compare implementation with working commit `6484dd9`:
 
 ---
 
-**Current Status**: App restarted with screen capture fix. Ready for next test with added logging.
+**Current Status**:
+- ✅ Screen capture fix applied (commit 166d820)
+- ✅ Comprehensive audio logging added (commit 81f9241)
+- ✅ App running with hot-reload enabled
+- 📋 **READY FOR TESTING** - User to test Fn and Fn+Ctrl modes with new logs
+
+**Next Action**: User should test both modes while monitoring console output:
+1. Test Fn only → Expect audio chunk logs, NO screen logs
+2. Test Fn+Ctrl → Expect audio chunk logs AND screen logs
+3. Review logs to identify why Gemini returned empty result
 
 ---
 
