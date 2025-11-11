@@ -23,16 +23,22 @@
 
 ## Overview
 
-Voice Edit now supports **two distinct voice input modes** selectable via keyboard combinations:
+Voice Edit now supports **two distinct voice input modes** selectable dynamically per-command via keyboard combinations:
 
 1. **STT Mode** (Fn only): Pure speech-to-text dictation - microphone only, no screen capture
 2. **Multimodal Mode** (Fn + Ctrl): Voice commands with screen context - microphone + screen capture
 
+**CRITICAL: No Global Toggle** ❌
+- ✅ **Multimodal is OFF by default** (screen capture disabled)
+- ✅ **Per-command activation**: Fn = STT only, Fn+Ctrl = Multimodal for that command only
+- ✅ **Automatic cleanup**: Screen capture stops immediately when Fn+Ctrl released
+- ✅ **Settings UI change**: Remove multimodal toggle from settings - mode is now key-driven
+
 This architecture solves critical problems:
-- ✅ **Token Efficiency**: Screen capture only when explicitly needed
-- ✅ **Clear UX**: Visual feedback shows which mode is active
-- ✅ **User Control**: Choose mode per-command, not globally
-- ✅ **Simple State Machine**: Easy to understand and debug
+- ✅ **Token Efficiency**: Screen capture only when user presses Fn+Ctrl
+- ✅ **Clear UX**: Visual feedback shows which mode is active during press
+- ✅ **User Control**: Choose mode per-command with key combination, not a setting
+- ✅ **Simple State Machine**: Mode determined by which keys are held
 
 ---
 
@@ -170,17 +176,20 @@ nativeModule.startMonitoring((event: KeyEvent) => {
 **Previous Architecture Issues**:
 
 1. **Token Inefficiency**: Always capturing screen flooded Gemini with unnecessary visual tokens
-2. **Unclear Mode**: Users didn't know when screen capture was active/ready
-3. **Wasted Resources**: Pure dictation doesn't need screen context
-4. **Complex State**: Multiple modes led to confusing state transitions
+2. **Global Toggle Confusion**: Settings toggle didn't give per-command control
+3. **Unclear Mode**: Users didn't know when screen capture was active/ready
+4. **Wasted Resources**: Pure dictation doesn't need screen context
 
 ### Solution
 
-**Dual-Mode Control**:
-- User explicitly chooses mode with key combination
-- System provides clear visual feedback
-- Screen capture only runs when multimodal mode active
-- Simple, predictable state transitions
+**Per-Command Dual-Mode Control**:
+- ✅ **Remove settings toggle** - no more global multimodal on/off
+- ✅ **Default: STT only** - screen capture OFF by default
+- ✅ **Fn pressed**: STT mode (mic only, no screen)
+- ✅ **Fn+Ctrl pressed**: Multimodal mode (mic + screen) **for that command only**
+- ✅ **Key released**: Mode ends, screen capture stops (if multimodal)
+- ✅ **Visual feedback**: Overlay updates in real-time to show active mode
+- ✅ **Next command**: Back to default (STT only unless Fn+Ctrl pressed again)
 
 ---
 
@@ -191,12 +200,14 @@ nativeModule.startMonitoring((event: KeyEvent) => {
 | Aspect | STT Mode (Fn only) | Multimodal Mode (Fn + Ctrl) |
 |--------|-------------------|----------------------------|
 | **Trigger** | Press+hold Fn | Press+hold Fn + Ctrl |
-| **Microphone** | ✅ Active | ✅ Active |
-| **Screen Capture** | ❌ Off | ✅ Active (1 FPS JPEG) |
+| **Default** | ✅ YES (screen OFF by default) | ❌ NO (requires Fn+Ctrl) |
+| **Microphone** | ✅ Active while Fn held | ✅ Active while Fn+Ctrl held |
+| **Screen Capture** | ❌ Off | ✅ Active (1 FPS JPEG) **only while Fn+Ctrl held** |
 | **Use Case** | Dictation, transcription | Voice commands needing screen context |
 | **Gemini Tokens** | Audio only (~100 tokens) | Audio + Video (~500-1000 tokens) |
 | **Visual Indicator** | 🎤 STT highlighted | 🎤📺 Multimodal + 🟢 READY |
-| **Processing** | Pure STT transcription | Multimodal command understanding |
+| **After Release** | Processes, returns to standby | Processes, **screen stops**, returns to standby |
+| **Next Command** | STT mode (unless Fn+Ctrl pressed) | Back to STT mode default |
 
 ---
 
@@ -206,9 +217,13 @@ nativeModule.startMonitoring((event: KeyEvent) => {
 
 **Workflow**:
 ```
-User presses Fn
+[Default state: Screen capture OFF]
     ↓
-Microphone activates (no screen capture)
+User presses Fn (no Ctrl)
+    ↓
+Microphone activates (screen capture stays OFF)
+    ↓
+Overlay shows: 🎤 STT highlighted
     ↓
 User speaks: "Hello world"
     ↓
@@ -217,9 +232,12 @@ User releases Fn
 Gemini transcribes (audio only)
     ↓
 Text pasted: "Hello world"
+    ↓
+Back to standby (screen still OFF for next command)
 ```
 
 **Token Usage**: ~100 tokens (audio only)
+**Screen Capture**: Never activated
 
 **Example Commands**:
 - Dictation: "This is a test sentence"
@@ -238,13 +256,19 @@ Text pasted: "Hello world"
 
 **Workflow**:
 ```
-User presses Fn + Ctrl
+[Default state: Screen capture OFF]
     ↓
-Microphone + Screen capture activate
+User presses Fn + Ctrl simultaneously
+    ↓
+Screen capture starts (FIRST)
     ↓
 500ms initialization delay
     ↓
-🟢 READY indicator appears (screen capture ready)
+🟢 READY indicator appears in overlay
+    ↓
+Microphone activates
+    ↓
+Overlay shows: 🎤📺 Multimodal + 🟢 READY
     ↓
 User speaks: "translate to French"
     ↓
@@ -252,12 +276,17 @@ User releases Fn + Ctrl
     ↓
 Gemini processes with audio + screen context
     ↓
+Screen capture STOPS immediately
+    ↓
 Returns: {"action": "edit", "result": "Bonjour le monde"}
     ↓
 Text pasted
+    ↓
+Back to standby (screen OFF again for next command)
 ```
 
-**Token Usage**: ~500-1000 tokens (audio + video frames)
+**Token Usage**: ~500-1000 tokens (audio + video frames) **only during this command**
+**Screen Capture**: Activated only while Fn+Ctrl held, stops immediately on release
 
 **Example Commands**:
 - "translate to French" (needs to see selected text)
@@ -278,17 +307,19 @@ Text pasted
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         APPLICATION STATES                       │
+│                  (Screen capture OFF by default)                 │
 └─────────────────────────────────────────────────────────────────┘
 
         ┌──────────┐
         │   IDLE   │
+        │ Screen: OFF │
         └────┬─────┘
              │
              │ Ctrl+Space (Enter RECORD MODE)
              ▼
         ┌─────────────────────┐
         │   RECORD_MODE       │ ← Overlay visible, waiting for Fn
-        │   (Ready/Idle)      │
+        │   (Ready/Standby)   │    Screen: OFF (default)
         └──────┬──────────────┘
                │
     ┌──────────┴──────────┐
@@ -299,11 +330,11 @@ Text pasted
 │  STT_ACTIVE    │    │  MULTIMODAL_ACTIVE     │
 │                │    │                        │
 │ 🎤 Mic: ON     │    │ 🎤 Mic: ON             │
-│ 📺 Screen: OFF │    │ 📺 Screen: ON (1 FPS)  │
+│ 📺 Screen: OFF │    │ 📺 Screen: ON (START!) │
 │                │    │ 🟢 Green: READY        │
 └────────┬───────┘    └──────────┬─────────────┘
          │                       │
-         │ Fn Release            │ Fn+Ctrl Release
+         │ Fn Release            │ Fn+Ctrl Release (Screen STOPS!)
          └───────────┬───────────┘
                      ▼
             ┌──────────────────┐
@@ -312,32 +343,42 @@ Text pasted
             │ • Send context   │
             │ • Wait response  │
             │ • 10s timeout    │
+            │ Screen: OFF      │ ← Screen already stopped!
             └────────┬─────────┘
                      │
                      │ Response received OR timeout
                      ▼
             ┌──────────────────┐
-            │   RECORD_MODE    │ ← Back to ready state
-            │   (Ready for     │    (not IDLE!)
-            │    next Fn)      │
+            │   RECORD_MODE    │ ← Back to standby
+            │   (Ready for     │    Screen: OFF (default)
+            │    next Fn)      │    Ready for next command
             └──────────────────┘
                      │
                      │ Ctrl+Space (Exit RECORD MODE)
                      ▼
                 ┌──────────┐
                 │   IDLE   │
+                │ Screen: OFF │
                 └──────────┘
 ```
 
+**CRITICAL Screen Capture Lifecycle**:
+- ✅ **Default: Screen OFF** in all states except MULTIMODAL_ACTIVE
+- ✅ **Starts**: Only when Fn+Ctrl pressed (enters MULTIMODAL_ACTIVE)
+- ✅ **Stops**: Immediately when Fn+Ctrl released (exits MULTIMODAL_ACTIVE)
+- ✅ **Next command**: Back to Screen OFF (requires Fn+Ctrl again to re-enable)
+
 ### State Definitions
 
-| State | Description | Visual Indicator | Duration |
-|-------|-------------|------------------|----------|
-| **IDLE** | App running, no recording | No overlay | Until Ctrl+Space |
-| **RECORD_MODE** | Ready for Fn input | Overlay visible, no mode active | Until Fn press or Ctrl+Space |
-| **STT_ACTIVE** | Fn held, mic recording | 🎤 STT highlighted | While Fn held |
-| **MULTIMODAL_ACTIVE** | Fn+Ctrl held, mic+screen recording | 🎤📺 Multimodal + 🟢 READY | While Fn+Ctrl held |
-| **PROCESSING** | Waiting for Gemini response | ⏳ Processing... | Until response or 10s timeout |
+| State | Description | Screen Capture | Visual Indicator | Duration |
+|-------|-------------|----------------|------------------|----------|
+| **IDLE** | App running, no recording | ❌ OFF | No overlay | Until Ctrl+Space |
+| **RECORD_MODE** | Ready for Fn input | ❌ OFF (default) | Overlay visible, standby | Until Fn press or Ctrl+Space |
+| **STT_ACTIVE** | Fn held, mic recording | ❌ OFF | 🎤 STT highlighted | While Fn held |
+| **MULTIMODAL_ACTIVE** | Fn+Ctrl held, mic+screen | ✅ ON (ONLY here!) | 🎤📺 Multimodal + 🟢 READY | While Fn+Ctrl held |
+| **PROCESSING** | Waiting for Gemini response | ❌ OFF (stopped) | ⏳ Processing... | Until response or 10s timeout |
+
+**Key Point**: Screen capture is ONLY active in MULTIMODAL_ACTIVE state. All other states have screen OFF.
 
 ---
 
@@ -408,6 +449,32 @@ Text pasted
 
 ---
 
+## Settings UI Changes
+
+### CRITICAL: Remove Multimodal Toggle
+
+**Old Behavior** ❌:
+- Settings had a global "Enable Multimodal" toggle
+- User had to manually enable/disable in settings
+- Once enabled, screen capture always ran during RECORD_MODE
+
+**New Behavior** ✅:
+- **Remove the multimodal toggle from Settings UI completely**
+- Mode is now determined by **which keys user presses**
+- No global setting - mode is per-command
+- Screen capture only runs when Fn+Ctrl is actively held
+
+**Files to Update**:
+1. **Settings UI Component** - Remove multimodal toggle checkbox/switch
+2. **Config/Store** - Remove `screenSharingEnabled` or `multimodalEnabled` setting (if exists)
+3. **useVoiceEdit.ts** - Don't check any multimodal setting flag
+
+**Migration**:
+- Existing users with multimodal enabled: Setting is ignored, now key-driven
+- Screen capture permission still required (requested on first Fn+Ctrl press)
+
+---
+
 ## Implementation Details
 
 ### File Structure
@@ -418,10 +485,12 @@ src/
 │   ├── App.vue                          # Main UI + key detection + overlay
 │   ├── composables/
 │   │   └── useVoiceEdit.ts              # Core logic with dual modes
+│   ├── components/
+│   │   └── Settings.vue                 # REMOVE multimodal toggle
 │   └── services/
 │       └── geminiLiveSDKAdapter.ts      # Gemini API (unchanged)
 └── main/
-    └── index.ts                          # Main process (minimal changes)
+    └── index.ts                          # Main process event handler
 ```
 
 ---

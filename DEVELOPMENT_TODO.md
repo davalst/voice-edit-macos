@@ -33,9 +33,34 @@ The native module `src/native/key-monitor.mm` already:
 
 ---
 
-### 🔧 Phase 1: Core Implementation
+### 🔧 Phase 1: Settings UI Cleanup
 
-#### Task 1.1: Update Main Process Event Handler
+#### Task 1.0: Remove Multimodal Toggle from Settings
+**Files**: Settings UI component (likely `src/renderer/components/Settings.vue` or similar)
+
+**Changes**:
+- Remove multimodal toggle checkbox/switch from UI
+- Remove any `screenSharingEnabled` or `multimodalEnabled` config setting
+- Update settings documentation to explain key-driven mode selection
+
+**Rationale**:
+Multimodal is no longer a global setting - it's determined per-command by which keys the user presses (Fn = STT, Fn+Ctrl = Multimodal).
+
+**Testing After Task**:
+- [ ] Settings UI no longer shows multimodal toggle
+- [ ] App still requests screen recording permission on first Fn+Ctrl press
+- [ ] No errors about missing multimodal setting
+
+**Acceptance Criteria**:
+- Settings simplified
+- Mode is 100% key-driven
+- Clear in-app explanation of how modes work
+
+---
+
+### 🔧 Phase 2: Core Implementation
+
+#### Task 2.1: Update Main Process Event Handler
 **File**: `src/main/index.ts` (lines ~406-423)
 
 **Changes**:
@@ -87,7 +112,7 @@ keyMonitor.on('keyStateChange', (event) => {
 
 ---
 
-#### Task 1.2: Update Renderer IPC Handler
+#### Task 2.2: Update Renderer IPC Handler
 **File**: `src/renderer/App.vue`
 
 **Changes**:
@@ -124,7 +149,7 @@ electronAPI.onPTTPressed((_event: any, data: { isRecording: boolean; mode?: stri
 
 ---
 
-#### Task 1.3: Implement STT Mode (Fn Only)
+#### Task 2.3: Implement STT Mode (Fn Only)
 **File**: `src/renderer/composables/useVoiceEdit.ts`
 
 **Changes**:
@@ -146,7 +171,7 @@ Add new `startSTTMode()` function (implementation from DUAL_MODE_ARCHITECTURE.md
 
 ---
 
-#### Task 1.4: Implement Multimodal Mode (Fn+Ctrl)
+#### Task 2.4: Implement Multimodal Mode (Fn+Ctrl)
 **File**: `src/renderer/composables/useVoiceEdit.ts`
 
 **Changes**:
@@ -173,7 +198,7 @@ Add new `startMultimodalMode()` function (implementation from DUAL_MODE_ARCHITEC
 
 ---
 
-#### Task 1.5: Implement Release Handler with Timeout
+#### Task 2.5: Implement Release Handler with Timeout
 **File**: `src/renderer/composables/useVoiceEdit.ts`
 
 **Changes**:
@@ -209,7 +234,7 @@ function resetToRecordMode() {
 
 ---
 
-#### Task 1.6: Update Gemini Response Handler
+#### Task 2.6: Update Gemini Response Handler
 **File**: `src/renderer/composables/useVoiceEdit.ts`
 
 **Changes**:
@@ -235,7 +260,7 @@ geminiAdapter.on('turnComplete', async () => {
 
 ---
 
-#### Task 1.7: Update Overlay UI
+#### Task 2.7: Update Overlay UI
 **File**: `src/renderer/App.vue`
 
 **Changes**:
@@ -260,7 +285,7 @@ geminiAdapter.on('turnComplete', async () => {
 
 ---
 
-#### Task 1.8: Connect Overlay to State
+#### Task 2.8: Connect Overlay to State
 **File**: `src/renderer/App.vue`
 
 **Changes**:
@@ -290,7 +315,7 @@ const {
 
 ---
 
-### 🧪 Phase 2: Unit Testing
+### 🧪 Phase 3: Unit Testing
 
 #### Test 2.1: STT Mode End-to-End
 **Test Scenario**: Pure dictation without screen
@@ -598,7 +623,7 @@ const {
 
 ---
 
-### 🐛 Phase 3: Bug Verification
+### 🐛 Phase 4: Bug Verification
 
 #### Bug 3.1: Gemini Non-Response (Original Issue)
 **Original Bug**: Gemini stops responding after first command
@@ -694,7 +719,7 @@ const {
 
 ---
 
-### 📊 Phase 4: Performance & Edge Cases
+### 📊 Phase 5: Performance & Edge Cases
 
 #### Test 4.1: Rapid Mode Switching
 **Test Scenario**: Quick alternation between modes
@@ -752,7 +777,7 @@ const {
 
 ---
 
-### ✅ Phase 5: Final Validation
+### ✅ Phase 6: Final Validation
 
 #### Validation 5.1: Compare with Working Code Patterns
 **Reference**: WORKING_CODE.md in Downloads
@@ -857,15 +882,18 @@ const {
 
 ## Completion Checklist
 
-### Implementation Complete
-- [ ] Task 1.1: Main process event handler (check ctrlPressed flag) ✓
-- [ ] Task 1.2: Renderer IPC handler (accept mode parameter) ✓
-- [ ] Task 1.3: STT mode ✓
-- [ ] Task 1.4: Multimodal mode ✓
-- [ ] Task 1.5: Release handler + timeout ✓
-- [ ] Task 1.6: Response handler ✓
-- [ ] Task 1.7: Overlay UI ✓
-- [ ] Task 1.8: State connection ✓
+### Phase 1: Settings Cleanup
+- [ ] Task 1.0: Remove multimodal toggle from Settings UI ✓
+
+### Phase 2: Implementation Complete
+- [ ] Task 2.1: Main process event handler (check ctrlPressed flag) ✓
+- [ ] Task 2.2: Renderer IPC handler (accept mode parameter) ✓
+- [ ] Task 2.3: STT mode ✓
+- [ ] Task 2.4: Multimodal mode ✓
+- [ ] Task 2.5: Release handler + timeout ✓
+- [ ] Task 2.6: Response handler ✓
+- [ ] Task 2.7: Overlay UI ✓
+- [ ] Task 2.8: State connection ✓
 
 ### Testing Complete
 - [ ] Test 2.1: STT end-to-end ✓
