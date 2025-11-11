@@ -350,6 +350,28 @@ async function saveSettings() {
  * Lifecycle
  */
 onMounted(async () => {
+  // Intercept console methods to display in UI
+  const originalConsole = {
+    log: console.log,
+    warn: console.warn,
+    error: console.error,
+  }
+
+  console.log = (...args: any[]) => {
+    originalConsole.log(...args)
+    addLog('info', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' '))
+  }
+
+  console.warn = (...args: any[]) => {
+    originalConsole.warn(...args)
+    addLog('warn', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' '))
+  }
+
+  console.error = (...args: any[]) => {
+    originalConsole.error(...args)
+    addLog('error', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' '))
+  }
+
   // Load settings
   await loadSettings()
 
