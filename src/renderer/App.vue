@@ -457,10 +457,10 @@ onMounted(async () => {
         addLog('info', '🎤 Fn pressed - starting recording...')
         await startRecording()
       } else {
-        // Fn released - stop and process
+        // Fn released - trigger processing BEFORE stopping
         addLog('info', '🎤 Fn released - processing...')
-        stopRecording()
         await manualTriggerProcessing()
+        stopRecording()
       }
     })
   }
