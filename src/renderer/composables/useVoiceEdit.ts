@@ -324,13 +324,6 @@ export function useVoiceEdit() {
     isRecording.value = false
     currentMode.value = RecordingMode.IDLE
 
-    // CRITICAL: Reset processing flag when stopping recording
-    // This prevents the flag from getting stuck if processing was interrupted
-    if (isProcessing.value) {
-      console.log('[VoiceEdit] ⚠️ Resetting stuck processing flag')
-      isProcessing.value = false
-    }
-
     // SECURITY: Stop screen sharing when recording stops
     // This ensures screen is only captured while mic is active
     if (isScreenSharing.value) {
