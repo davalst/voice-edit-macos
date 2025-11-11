@@ -151,15 +151,16 @@
             </label>
           </div>
 
-          <div class="setting-row">
-            <div class="setting-info">
-              <div class="setting-label">Enable screen sharing (multimodal)</div>
-              <div class="setting-hint">Allows AI to see your screen for context</div>
+          <!-- ✅ REMOVED: Multimodal toggle - now controlled by Fn+Ctrl key combination -->
+          <!-- Mode selection is now per-command: Fn = STT only, Fn+Ctrl = Multimodal -->
+
+          <div class="setting-info-box">
+            <div class="info-title">🎤 Voice Input Modes</div>
+            <div class="info-text">
+              <p><strong>Fn key:</strong> Dictation mode (mic only)</p>
+              <p><strong>Fn + Ctrl:</strong> Command mode with screen context</p>
+              <p style="margin-top: 10px; opacity: 0.7;">Mode is selected per-command by which keys you press.</p>
             </div>
-            <label class="toggle">
-              <input type="checkbox" v-model="screenSharingEnabled" @change="saveSettings" />
-              <span class="toggle-slider"></span>
-            </label>
           </div>
         </div>
       </div>
@@ -245,7 +246,7 @@ const settingsNavItems = [
 // Settings
 const apiKey = ref('')
 const hotkey = ref('Control+Space')
-const screenSharingEnabled = ref(true)
+// ✅ REMOVED screenSharingEnabled - multimodal is now per-command via Fn+Ctrl
 const launchAtLogin = ref(false)
 
 // Voice edit state
@@ -357,7 +358,7 @@ async function loadSettings() {
   const config = await electronAPI.getConfig()
   apiKey.value = config.apiKey || ''
   hotkey.value = config.hotkey || 'Control+Space'
-  screenSharingEnabled.value = config.screenSharingEnabled !== false
+  // ✅ REMOVED screenSharingEnabled - multimodal is now per-command via Fn+Ctrl
   launchAtLogin.value = config.launchAtLogin === true
 }
 
@@ -374,14 +375,14 @@ async function saveSettings() {
   await electronAPI.saveConfig({
     apiKey: apiKey.value,
     hotkey: hotkey.value,
-    screenSharingEnabled: screenSharingEnabled.value,
+    // ✅ REMOVED screenSharingEnabled - multimodal is now per-command via Fn+Ctrl
     launchAtLogin: launchAtLogin.value,
   })
 
   console.log('Settings saved')
 
-  // Reinitialize with new settings
-  init(apiKey.value, screenSharingEnabled.value)
+  // Reinitialize with new API key (multimodal now per-command via Fn+Ctrl)
+  init(apiKey.value)
 }
 
 /**
@@ -419,8 +420,8 @@ onMounted(async () => {
   // Load settings
   await loadSettings()
 
-  // Initialize voice edit engine
-  init(apiKey.value, screenSharingEnabled.value)
+  // Initialize voice edit engine (multimodal now per-command via Fn+Ctrl)
+  init(apiKey.value)
 
   // Listen for hotkey from main process
   const electronAPI = (window as any).electronAPI
@@ -776,6 +777,37 @@ onMounted(async () => {
 .setting-hint {
   font-size: 13px;
   color: #6b7280;
+}
+
+/* Setting Info Box */
+.setting-info-box {
+  padding: 16px;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  margin-top: 16px;
+}
+
+.info-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 12px;
+}
+
+.info-text {
+  font-size: 13px;
+  color: #4b5563;
+  line-height: 1.6;
+}
+
+.info-text p {
+  margin: 6px 0;
+}
+
+.info-text strong {
+  color: #1f2937;
+  font-weight: 600;
 }
 
 /* Toggle Switch */

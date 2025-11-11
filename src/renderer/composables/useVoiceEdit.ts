@@ -43,8 +43,9 @@ export function useVoiceEdit() {
 
   /**
    * Initialize Gemini connection
+   * NOTE: Screen sharing is now per-command (Fn = STT, Fn+Ctrl = Multimodal)
    */
-  async function init(apiKey: string, enableScreenSharing: boolean = true) {
+  async function init(apiKey: string) {
     if (!apiKey) {
       console.error('[VoiceEdit] No API key provided')
       getElectronAPI()?.log?.('[Renderer] ❌ No API key - cannot initialize')
@@ -53,7 +54,7 @@ export function useVoiceEdit() {
 
     try {
       console.log('[VoiceEdit] Initializing Gemini connection...')
-      getElectronAPI()?.log?.(`[Renderer] Initializing Gemini with screen sharing: ${enableScreenSharing}`)
+      getElectronAPI()?.log?.('[Renderer] Initializing Gemini (multimodal per-command via Fn+Ctrl)')
 
       geminiAdapter = new GeminiLiveSDKAdapter({
         apiKey,
