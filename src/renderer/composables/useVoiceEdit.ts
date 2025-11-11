@@ -551,6 +551,13 @@ export function useVoiceEdit() {
     console.log('[VoiceEdit] Entering RECORD MODE (hold Fn to talk)')
     getElectronAPI()?.log?.('[Renderer] Entered RECORD MODE - waiting for Fn key')
 
+    // SAFETY: Reset isProcessing flag to prevent stuck state
+    // This ensures clean state when entering RECORD MODE
+    if (isProcessing.value) {
+      console.log('[VoiceEdit] ⚠️ Resetting stuck isProcessing flag on RECORD MODE entry')
+      isProcessing.value = false
+    }
+
     inRecordMode.value = true
     selectedText.value = preCapturedText || ''
     focusedAppName.value = appName || ''
