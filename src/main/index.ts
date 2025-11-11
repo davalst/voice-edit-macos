@@ -11,6 +11,7 @@
 
 import { app, BrowserWindow, globalShortcut, ipcMain, clipboard, Tray, Menu, nativeImage, desktopCapturer } from 'electron'
 import { join } from 'path'
+import { appendFileSync, existsSync, mkdirSync } from 'fs'
 import Store from 'electron-store'
 import { setupHotkeyManager } from './hotkey-manager'
 import { simulatePaste, copyToClipboard, getSelectedText, getFocusedAppName } from './clipboard-manager'
