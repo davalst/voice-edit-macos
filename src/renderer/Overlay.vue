@@ -169,11 +169,11 @@ function handleWaveformUpdate(data: number[]) {
  * Lifecycle
  */
 onMounted(() => {
-  // Setup canvas size (compact like Wispr)
+  // Setup canvas size (compact like Wispr - 1/3 size)
   const canvas = waveformCanvas.value
   if (canvas) {
-    canvas.width = 120
-    canvas.height = 20
+    canvas.width = 80
+    canvas.height = 16
     drawWaveform()
   }
 
@@ -199,25 +199,25 @@ watch(waveformData, drawWaveform)
   z-index: 9999;
 }
 
-/* Idle state: tiny hollow dash with dots */
+/* Idle state: tiny hollow dash with dots - 1/3 size (Wispr style) */
 .overlay-idle {
   background: rgba(0, 0, 0, 0.8);
   backdrop-filter: blur(10px);
-  border-radius: 20px;
-  padding: 8px 16px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  border-radius: 14px;
+  padding: 6px 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   transition: all 0.2s ease;
 }
 
 .idle-dots {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   align-items: center;
 }
 
 .dot {
-  width: 4px;
-  height: 4px;
+  width: 3px;
+  height: 3px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.4);
   animation: pulse 2s ease-in-out infinite;
@@ -233,16 +233,16 @@ watch(waveformData, drawWaveform)
   50% { opacity: 1; }
 }
 
-/* Recording state: compact waveform bar with mode indicator */
+/* Recording state: compact waveform bar with mode indicator - 1/3 size (Wispr style) */
 .overlay-recording {
   background: rgba(0, 0, 0, 0.9);
   backdrop-filter: blur(10px);
-  border-radius: 24px;
-  padding: 10px 16px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  border-radius: 18px;
+  padding: 6px 10px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   transition: all 0.2s ease;
 }
 
@@ -250,18 +250,18 @@ watch(waveformData, drawWaveform)
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 12px;
   opacity: 0.9;
 }
 
 .mode-icon {
   display: block;
-  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.3));
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.3));
 }
 
 .waveform {
-  width: 120px;
-  height: 20px;
+  width: 80px;
+  height: 16px;
   display: block;
 }
 
@@ -270,7 +270,7 @@ watch(waveformData, drawWaveform)
   border: none;
   color: #ef4444;
   cursor: pointer;
-  padding: 4px;
+  padding: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -286,22 +286,22 @@ watch(waveformData, drawWaveform)
   transform: scale(0.95);
 }
 
-/* Result state: shows last command/result */
+/* Result state: shows last command/result - 1/3 size */
 .overlay-result {
   background: rgba(0, 0, 0, 0.9);
   backdrop-filter: blur(10px);
-  border-radius: 24px;
-  padding: 12px 20px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  max-width: 400px;
+  border-radius: 16px;
+  padding: 8px 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  max-width: 280px;
   transition: all 0.2s ease;
 }
 
 .result-text {
   color: rgba(255, 255, 255, 0.9);
-  font-size: 13px;
+  font-size: 11px;
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
-  line-height: 1.4;
+  line-height: 1.3;
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
