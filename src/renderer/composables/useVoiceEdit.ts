@@ -242,21 +242,33 @@ export function useVoiceEdit() {
    */
   async function startAudioRecording() {
     if (!geminiAdapter || !isConnected.value) {
+      console.log('[VoiceEdit] ⚠️ Cannot start audio - adapter:', !!geminiAdapter, 'connected:', isConnected.value)
       return
     }
+
+    console.log('[VoiceEdit] 🎤 === AUDIO RECORDING START ===')
+    console.log('[VoiceEdit] Creating AudioRecorder (16kHz)')
+    getElectronAPI()?.log?.('[Renderer] Creating AudioRecorder (16kHz)')
 
     // Start audio recording
     audioRecorder = new AudioRecorder(16000)
 
     // Stream audio to Gemini continuously
+    let audioChunkCount = 0
     audioRecorder.on('data', (base64Audio: string) => {
+      audioChunkCount++
+      console.log(`[VoiceEdit] 🎵 Audio chunk #${audioChunkCount}: ${base64Audio.length} chars`)
+
       if (geminiAdapter && isRecording.value) {
+        console.log(`[VoiceEdit] 📤 Sending chunk #${audioChunkCount} to Gemini`)
         geminiAdapter.sendRealtimeInput({
           media: {
             data: base64Audio,
             mimeType: 'audio/pcm;rate=16000',
           },
         })
+      } else {
+        console.log(`[VoiceEdit] ⚠️ NOT sending chunk #${audioChunkCount} - adapter:`, !!geminiAdapter, 'recording:', isRecording.value)
       }
     })
 
@@ -308,7 +320,10 @@ export function useVoiceEdit() {
       }
     })
 
+    console.log('[VoiceEdit] 🎤 Starting microphone capture...')
     await audioRecorder.start()
+    console.log('[VoiceEdit] ✅ Microphone active and streaming')
+    getElectronAPI()?.log?.('[Renderer] ✅ AudioRecorder active')
     // isRecording.value is already set to true at the start of startRecordingWithMode()
 
     // Notify main process
@@ -605,13 +620,19 @@ export function useVoiceEdit() {
 
     isProcessing.value = true
     console.log('[VoiceEdit] 🎯 Fn released - manually triggering processing')
+    console.log('[VoiceEdit] === PROCESSING START ===')
     getElectronAPI()?.log?.('[Renderer] Fn released - triggering processing')
 
     try {
       // Build context message (same as silence detection)
       const contextMessage = `Focus text: "${selectedText.value}"`
 
-      console.log('[VoiceEdit] 📤 Sending context:', contextMessage.substring(0, 150))
+      console.log('[VoiceEdit] 📤 Context message:', contextMessage.substring(0, 150))
+      console.log('[VoiceEdit] 📊 Recording state:', {
+        isRecording: isRecording.value,
+        currentMode: currentMode.value,
+        isScreenSharing: isScreenSharing.value
+      })
       getElectronAPI()?.log?.(`[Renderer] Context: "${contextMessage.substring(0, 150)}"`)
 
       // Send context with turnComplete: false
@@ -620,10 +641,13 @@ export function useVoiceEdit() {
         turnComplete: false,
       })
 
+      console.log('[VoiceEdit] 📤 Sending turnComplete to Gemini...')
       // Send turnComplete to trigger Gemini response
       const sent = await geminiAdapter.sendTurnComplete()
       if (sent) {
-        console.log('[VoiceEdit] ✅ Context sent, waiting for Gemini response')
+        console.log('[VoiceEdit] ✅ turnComplete sent, waiting for Gemini response...')
+      } else {
+        console.log('[VoiceEdit] ⚠️ Failed to send turnComplete')
       }
     } catch (error) {
       console.error('[VoiceEdit] Error in manual trigger:', error)
