@@ -1,8 +1,23 @@
 # DEVELOPMENT TODO - Dual-Mode Implementation & Testing
 
 > **Status**: Ready for implementation
-> **Estimated Time**: 4-6 hours (implementation + testing)
-> **Commit**: a34d039 (architecture docs)
+> **Estimated Time**: 3-4 hours (implementation + testing)
+> **Commit**: a34d039 (architecture docs) → Updated with native Fn implementation
+> **Native Key Detection**: Using existing IOKit module (NO native module changes needed!)
+
+---
+
+## CRITICAL: Native Fn Key Detection
+
+**WE ALREADY HAVE Fn AND Fn+Ctrl DETECTION WORKING!** ✅
+
+The native module `src/native/key-monitor.mm` already:
+- ✅ Detects Fn via `kCGEventFlagMaskSecondaryFn`
+- ✅ Detects Ctrl via `kCGEventFlagMaskControl`
+- ✅ Sends both states simultaneously to JavaScript
+- ✅ Emits `fnCtrlPressed` event (not used yet)
+
+**Implementation requires ~95 lines of code, NO native module changes!**
 
 ---
 
@@ -11,6 +26,8 @@
 ### ✅ Phase 0: Documentation (COMPLETE)
 - [x] Create DUAL_MODE_ARCHITECTURE.md
 - [x] Create ARCHITECTURE_ANALYSIS.md
+- [x] Create FN_KEY_IMPLEMENTATION_ANALYSIS.md
+- [x] Update DUAL_MODE_ARCHITECTURE.md with native approach
 - [x] Copy docs to Downloads
 - [x] Commit documentation
 
@@ -18,53 +35,110 @@
 
 ### 🔧 Phase 1: Core Implementation
 
-#### Task 1.1: Add State Variables & Key Detection
-**File**: `src/renderer/App.vue`
+#### Task 1.1: Update Main Process Event Handler
+**File**: `src/main/index.ts` (lines ~406-423)
 
 **Changes**:
-```typescript
-// Add new refs
-const isFnPressed = ref(false)
-const isCtrlPressed = ref(false)
-const isInMultimodalMode = ref(false)
+Update the `keyStateChange` handler to check `event.ctrlPressed` flag:
 
-// Add key event listeners (lines ~50-100)
-window.addEventListener('keydown', handleKeyDown)
-window.addEventListener('keyup', handleKeyUp)
+```typescript
+// Track previous states (ADD these)
+let previousFnState = false
+let previousCtrlState = false
+
+keyMonitor.on('keyStateChange', (event) => {
+  if (!inRecordModeGlobal) return
+
+  if (event.fnPressed !== previousFnState) {
+    if (event.fnPressed) {
+      // ✅ NEW: Check if Ctrl is also pressed
+      if (event.ctrlPressed) {
+        // Fn+Ctrl - multimodal mode
+        mainWindow?.webContents.send('ptt-pressed', {
+          isRecording: true,
+          mode: 'multimodal'
+        })
+      } else {
+        // Fn only - STT mode
+        mainWindow?.webContents.send('ptt-pressed', {
+          isRecording: true,
+          mode: 'stt'
+        })
+      }
+    } else {
+      // Fn released
+      mainWindow?.webContents.send('ptt-pressed', { isRecording: false })
+    }
+    previousFnState = event.fnPressed
+  }
+})
 ```
 
 **Testing After Task**:
-- [ ] Console logs show key presses/releases
-- [ ] `isFnPressed` toggles correctly
-- [ ] `isCtrlPressed` toggles correctly
-- [ ] Both keys can be detected simultaneously
+- [ ] Console shows "Fn PRESSED - starting STT mode" when Fn only
+- [ ] Console shows "Fn+Ctrl PRESSED - starting multimodal mode" when Fn+Ctrl
+- [ ] Both modes detected correctly
+- [ ] No changes to native module needed
 
 **Acceptance Criteria**:
-- Key state tracked accurately
-- No interference with existing Ctrl+Space hotkey
-- Console logs confirm detection
+- Main process correctly distinguishes Fn vs Fn+Ctrl
+- Mode parameter sent to renderer
+- ~10 lines of code added
 
 ---
 
-#### Task 1.2: Implement STT Mode (Fn Only)
-**File**: `src/renderer/composables/useVoiceEdit.ts`
+#### Task 1.2: Update Renderer IPC Handler
+**File**: `src/renderer/App.vue`
 
 **Changes**:
+Update the `onPTTPressed` handler to accept `mode` parameter:
+
 ```typescript
-async function startSTTMode() {
-  // Implementation from DUAL_MODE_ARCHITECTURE.md lines 430-470
-}
+electronAPI.onPTTPressed((_event: any, data: { isRecording: boolean; mode?: string }) => {
+  if (data.isRecording) {
+    // Starting recording - check which mode
+    if (data.mode === 'multimodal') {
+      console.log('[App] Starting MULTIMODAL mode')
+      startMultimodalMode()
+    } else {
+      console.log('[App] Starting STT mode')
+      startSTTMode()
+    }
+  } else {
+    // Stopping recording
+    console.log('[App] Stopping recording - processing')
+    handleRelease()
+  }
+})
 ```
 
 **Testing After Task**:
-- [ ] Press Fn → Console shows "Starting STT mode"
+- [ ] IPC handler accepts mode parameter
+- [ ] Calls correct mode function (STT vs multimodal)
+- [ ] Console logs show mode selection
+
+**Acceptance Criteria**:
+- IPC handler updated (~5 lines)
+- Mode routing works correctly
+- Clear console logs
+
+---
+
+#### Task 1.3: Implement STT Mode (Fn Only)
+**File**: `src/renderer/composables/useVoiceEdit.ts`
+
+**Changes**:
+Add new `startSTTMode()` function (implementation from DUAL_MODE_ARCHITECTURE.md lines 538-597)
+
+**Testing After Task**:
+- [ ] Press Fn → Console shows "🎤 Starting STT mode (mic only)"
 - [ ] Audio recording starts (no screen capture)
 - [ ] Release Fn → Processing triggered
 - [ ] Response pasted correctly
 - [ ] NO screen capture logs present
 
 **Acceptance Criteria**:
-- Audio-only recording works
+- Audio-only recording works (~40 lines)
 - No screen capture started
 - Gemini receives audio stream
 - Response pasted successfully
@@ -72,18 +146,14 @@ async function startSTTMode() {
 
 ---
 
-#### Task 1.3: Implement Multimodal Mode (Fn+Ctrl)
+#### Task 1.4: Implement Multimodal Mode (Fn+Ctrl)
 **File**: `src/renderer/composables/useVoiceEdit.ts`
 
 **Changes**:
-```typescript
-async function startMultimodalMode() {
-  // Implementation from DUAL_MODE_ARCHITECTURE.md lines 475-560
-}
-```
+Add new `startMultimodalMode()` function (implementation from DUAL_MODE_ARCHITECTURE.md lines 604-695)
 
 **Testing After Task**:
-- [ ] Press Fn+Ctrl → Console shows "Starting multimodal mode"
+- [ ] Press Fn+Ctrl → Console shows "🎤📺 Starting multimodal mode"
 - [ ] Screen capture starts first
 - [ ] 500ms delay before ready
 - [ ] Console shows "🟢 Screen capture READY"
@@ -94,7 +164,7 @@ async function startMultimodalMode() {
 - [ ] Response uses screen context
 
 **Acceptance Criteria**:
-- Screen capture initializes before audio
+- Screen capture initializes before audio (~80 lines)
 - 500ms delay implemented
 - Ready state exposed to UI
 - Both audio and screen sent to Gemini
@@ -103,7 +173,7 @@ async function startMultimodalMode() {
 
 ---
 
-#### Task 1.4: Implement Release Handler with Timeout
+#### Task 1.5: Implement Release Handler with Timeout
 **File**: `src/renderer/composables/useVoiceEdit.ts`
 
 **Changes**:
@@ -139,7 +209,7 @@ function resetToRecordMode() {
 
 ---
 
-#### Task 1.5: Update Gemini Response Handler
+#### Task 1.6: Update Gemini Response Handler
 **File**: `src/renderer/composables/useVoiceEdit.ts`
 
 **Changes**:
@@ -165,7 +235,7 @@ geminiAdapter.on('turnComplete', async () => {
 
 ---
 
-#### Task 1.6: Update Overlay UI
+#### Task 1.7: Update Overlay UI
 **File**: `src/renderer/App.vue`
 
 **Changes**:
@@ -190,7 +260,7 @@ geminiAdapter.on('turnComplete', async () => {
 
 ---
 
-#### Task 1.7: Connect Overlay to State
+#### Task 1.8: Connect Overlay to State
 **File**: `src/renderer/App.vue`
 
 **Changes**:
@@ -788,13 +858,14 @@ const {
 ## Completion Checklist
 
 ### Implementation Complete
-- [ ] Task 1.1: Key detection ✓
-- [ ] Task 1.2: STT mode ✓
-- [ ] Task 1.3: Multimodal mode ✓
-- [ ] Task 1.4: Release handler + timeout ✓
-- [ ] Task 1.5: Response handler ✓
-- [ ] Task 1.6: Overlay UI ✓
-- [ ] Task 1.7: State connection ✓
+- [ ] Task 1.1: Main process event handler (check ctrlPressed flag) ✓
+- [ ] Task 1.2: Renderer IPC handler (accept mode parameter) ✓
+- [ ] Task 1.3: STT mode ✓
+- [ ] Task 1.4: Multimodal mode ✓
+- [ ] Task 1.5: Release handler + timeout ✓
+- [ ] Task 1.6: Response handler ✓
+- [ ] Task 1.7: Overlay UI ✓
+- [ ] Task 1.8: State connection ✓
 
 ### Testing Complete
 - [ ] Test 2.1: STT end-to-end ✓
