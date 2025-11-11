@@ -99,9 +99,13 @@ export function useVoiceEdit() {
       // Connect to Gemini
       await geminiAdapter.connect()
 
-      // Setup screen sharing if enabled
-      if (enableScreenSharing) {
+      // Setup screen sharing ONLY if explicitly enabled
+      if (enableScreenSharing === true) {
+        console.log('[VoiceEdit] Screen sharing enabled - starting capture...')
         await startScreenSharing()
+      } else {
+        console.log('[VoiceEdit] Screen sharing disabled - using text-only mode')
+        isScreenSharing.value = false
       }
     } catch (error: any) {
       console.error('[VoiceEdit] Failed to initialize:', error.message)

@@ -107,13 +107,24 @@ export async function simulateKeyPress(key: string, modifiers: string[] = []): P
  * Get text selection from currently focused application
  *
  * Uses Cmd+C to copy selected text, then restores original clipboard.
+ * Implements polling with timeout to handle slow applications.
  *
  * @returns Selected text, or empty string if nothing selected
  */
 export async function getSelectedText(): Promise<string> {
   try {
-    // Save current clipboard
-    const originalClipboard = clipboard.readText()
+    console.log('[ClipboardManager] Getting selected text...')
+
+    // Save original clipboard content
+    const originalText = clipboard.readText()
+    const originalFormats = clipboard.availableFormats()
+    console.log('[ClipboardManager] Saved clipboard formats:', originalFormats.join(', '))
+
+    // Clear clipboard completely to ensure we can detect new content
+    clipboard.clear()
+
+    // Small delay to ensure clipboard is cleared
+    await new Promise(resolve => setTimeout(resolve, 50))
 
     // Simulate Cmd+C to copy selection
     const script = `
@@ -124,21 +135,49 @@ export async function getSelectedText(): Promise<string> {
 
     await execAsync(`osascript -e '${script}'`)
 
-    // Wait briefly for clipboard to update
-    await new Promise(resolve => setTimeout(resolve, 100))
+    // Poll for new clipboard content with timeout (max 500ms)
+    let selectedText = ''
+    let attempts = 0
+    const maxAttempts = 5 // 5 attempts * 100ms = 500ms max wait
 
-    // Get copied text
-    const selectedText = clipboard.readText()
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 100))
+      selectedText = clipboard.readText()
 
-    // Restore original clipboard if nothing was selected
-    if (selectedText === originalClipboard) {
+      // Check if we got new content
+      if (selectedText && selectedText.trim().length > 0) {
+        console.log('[ClipboardManager] ✅ Got selection after', (attempts + 1) * 100, 'ms')
+        break
+      }
+
+      attempts++
+    }
+
+    // Always restore original clipboard (even if empty)
+    if (originalText && originalText.trim().length > 0) {
+      clipboard.writeText(originalText)
+      console.log('[ClipboardManager] ✅ Restored original clipboard')
+    }
+
+    // Check if we got any text
+    if (!selectedText || selectedText.trim().length === 0) {
+      console.log('[ClipboardManager] No text selected (clipboard remained empty)')
       return ''
     }
 
-    console.log('[ClipboardManager] Got selected text:', selectedText.substring(0, 50) + '...')
+    console.log('[ClipboardManager] Selected text:', selectedText.substring(0, 50) + '...')
     return selectedText
+
   } catch (error: any) {
     console.error('[ClipboardManager] ❌ Failed to get selected text:', error.message)
+
+    // Check for accessibility permission errors
+    if (error.message.includes('not allowed') || error.message.includes('accessibility')) {
+      console.error('[ClipboardManager] ⚠️  ACCESSIBILITY PERMISSION REQUIRED!')
+      console.error('[ClipboardManager] Go to: System Preferences > Privacy & Security > Accessibility')
+      console.error('[ClipboardManager] Add Voice Edit to allowed applications')
+    }
+
     return ''
   }
 }
