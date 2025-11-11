@@ -74,19 +74,28 @@ export function useVoiceEdit() {
       let outputText = ''
       let audioChunks: string[] = []
       geminiAdapter.on('modelTurn', (parts: any[]) => {
+        console.log('[VoiceEdit] 📥 Received modelTurn with', parts.length, 'parts')
+        getElectronAPI()?.log?.(`[Renderer] Received modelTurn with ${parts.length} parts`)
+
         for (const part of parts) {
           if (part.text) {
+            console.log('[VoiceEdit] 📝 Text part:', part.text.substring(0, 100))
             outputText += part.text
           }
           if (part.inlineData?.mimeType === 'audio/pcm') {
             // Collect audio chunks for natural TTS playback
+            console.log('[VoiceEdit] 🔊 Audio part received')
             audioChunks.push(part.inlineData.data)
           }
         }
+        console.log('[VoiceEdit] 📊 Total output so far:', outputText.length, 'chars')
       })
 
       geminiAdapter.on('turnComplete', async () => {
         console.log('[VoiceEdit] ✅ Gemini finished response')
+        console.log('[VoiceEdit] 📊 Final outputText length:', outputText.length, 'chars')
+        console.log('[VoiceEdit] 📄 Final outputText:', outputText.substring(0, 200))
+        getElectronAPI()?.log?.(`[Renderer] Gemini response: ${outputText.substring(0, 200)}`)
 
         // CRITICAL FIX: Don't stop recording - keep listening for next command
         // This matches Ebben POC behavior for continuous conversation
@@ -382,20 +391,33 @@ export function useVoiceEdit() {
    * Handle Gemini response and execute appropriate action
    */
   async function handleGeminiResponse(outputText: string, audioChunks: string[] = []) {
+    console.log('[VoiceEdit] 🔄 handleGeminiResponse called with outputText length:', outputText.length)
+    getElectronAPI()?.log?.(`[Renderer] handleGeminiResponse called with ${outputText.length} chars`)
+
+    // Guard: Check if outputText is empty
+    if (!outputText || outputText.trim().length === 0) {
+      console.log('[VoiceEdit] ⚠️ Empty response from Gemini - nothing to process')
+      getElectronAPI()?.log?.('[Renderer] ⚠️ Empty Gemini response')
+      return
+    }
+
     try {
       // Parse JSON response
       let jsonText = outputText.trim()
+      console.log('[VoiceEdit] 🔍 Attempting to parse JSON from:', jsonText.substring(0, 200))
 
       // Remove markdown code fences if present
       if (jsonText.startsWith('```')) {
         const match = jsonText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/)
         if (match) {
           jsonText = match[1].trim()
+          console.log('[VoiceEdit] 🧹 Stripped markdown fences')
         }
       }
 
       const jsonResponse = JSON.parse(jsonText)
       console.log('[VoiceEdit] 📋 Parsed response:', jsonResponse)
+      getElectronAPI()?.log?.(`[Renderer] Parsed action: ${jsonResponse.action}`)
 
       lastCommand.value = 'Voice command processed'
       lastResult.value = jsonResponse.result?.substring(0, 100) || ''
@@ -432,8 +454,11 @@ export function useVoiceEdit() {
           console.warn('[VoiceEdit] Unknown action:', jsonResponse.action)
       }
     } catch (error: any) {
-      console.error('[VoiceEdit] Failed to parse response:', error.message)
-      console.log('[VoiceEdit] Raw output:', outputText)
+      console.error('[VoiceEdit] ❌ Failed to parse response:', error.message)
+      console.error('[VoiceEdit] 📄 Raw output:', outputText)
+      console.error('[VoiceEdit] 🔍 Error stack:', error.stack)
+      getElectronAPI()?.log?.(`[Renderer] ❌ Parse error: ${error.message}`)
+      getElectronAPI()?.log?.(`[Renderer] Raw output: ${outputText}`)
     }
   }
 
