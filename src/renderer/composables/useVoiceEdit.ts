@@ -38,8 +38,8 @@ export function useVoiceEdit() {
   let videoFrameCapturer: VideoFrameCapturer | null = null
   const screenCapture = useScreenCapture()
 
-  // Electron API
-  const electronAPI = (window as any).electronAPI
+  // Electron API - access lazily to avoid initialization errors during HMR
+  const getElectronAPI = () => (window as any).electronAPI
 
   /**
    * Initialize Gemini connection
@@ -47,13 +47,13 @@ export function useVoiceEdit() {
   async function init(apiKey: string, enableScreenSharing: boolean = true) {
     if (!apiKey) {
       console.error('[VoiceEdit] No API key provided')
-      electronAPI?.log?.('[Renderer] ❌ No API key - cannot initialize')
+      getElectronAPI()?.log?.('[Renderer] ❌ No API key - cannot initialize')
       return
     }
 
     try {
       console.log('[VoiceEdit] Initializing Gemini connection...')
-      electronAPI?.log?.(`[Renderer] Initializing Gemini with screen sharing: ${enableScreenSharing}`)
+      getElectronAPI()?.log?.(`[Renderer] Initializing Gemini with screen sharing: ${enableScreenSharing}`)
 
       geminiAdapter = new GeminiLiveSDKAdapter({
         apiKey,
@@ -66,7 +66,7 @@ export function useVoiceEdit() {
       // Setup event listeners
       geminiAdapter.on('setupComplete', () => {
         console.log('[VoiceEdit] ✅ Connected to Gemini')
-        electronAPI?.log?.('[Renderer] ✅ Gemini connected successfully')
+        getElectronAPI()?.log?.('[Renderer] ✅ Gemini connected successfully')
         isConnected.value = true
         // Ready - waiting for user to press hotkey to start recording
       })
@@ -135,10 +135,10 @@ export function useVoiceEdit() {
       // SECURITY: Do NOT start screen sharing automatically
       // Screen sharing will only start when recording begins (Control+Space pressed)
       console.log('[VoiceEdit] ✅ Initialization complete - screen sharing will start on first recording')
-      electronAPI?.log?.('[Renderer] ✅ Ready - screen sharing will activate during recording only')
+      getElectronAPI()?.log?.('[Renderer] ✅ Ready - screen sharing will activate during recording only')
     } catch (error: any) {
       console.error('[VoiceEdit] Failed to initialize:', error.message)
-      electronAPI?.log?.(`[Renderer] ❌ Initialization failed: ${error.message}`)
+      getElectronAPI()?.log?.(`[Renderer] ❌ Initialization failed: ${error.message}`)
     }
   }
 
@@ -174,7 +174,7 @@ export function useVoiceEdit() {
       console.log('  - Selected text:', selectedText.value?.substring(0, 100) || '(none)')
       console.log('  - Focused app:', focusedAppName.value)
 
-      electronAPI?.log?.(`[Renderer] Starting ${config.mode}, screen=${config.enableScreenCapture}`)
+      getElectronAPI()?.log?.(`[Renderer] Starting ${config.mode}, screen=${config.enableScreenCapture}`)
 
       // SECURITY: Start screen sharing ONLY if mode requires it
       // - STT_SCREEN_HOLD: Fn+Ctrl held = screen ON
@@ -183,7 +183,7 @@ export function useVoiceEdit() {
       // - STT_ONLY_TOGGLE: Double-tap Fn = screen OFF
       if (config.enableScreenCapture && focusedAppName.value) {
         console.log('[VoiceEdit] Starting screen capture for target app:', focusedAppName.value)
-        electronAPI?.log?.(`[Renderer] Screen capture enabled: ${focusedAppName.value}`)
+        getElectronAPI()?.log?.(`[Renderer] Screen capture enabled: ${focusedAppName.value}`)
 
         // Stop any existing screen sharing first
         if (videoFrameCapturer) {
@@ -193,7 +193,7 @@ export function useVoiceEdit() {
         await startScreenSharing(focusedAppName.value)
       } else {
         console.log('[VoiceEdit] Screen capture disabled for this mode')
-        electronAPI?.log?.('[Renderer] Screen capture OFF (STT-only mode)')
+        getElectronAPI()?.log?.('[Renderer] Screen capture OFF (STT-only mode)')
       }
 
       // Now start audio recording
@@ -256,14 +256,14 @@ export function useVoiceEdit() {
 
       isProcessing.value = true
       console.log('[VoiceEdit] 🔕 Silence detected - sending context + turnComplete')
-      electronAPI?.log?.(`[Renderer] Silence detected - sending context + turnComplete`)
+      getElectronAPI()?.log?.(`[Renderer] Silence detected - sending context + turnComplete`)
 
       try {
         // Build MINIMAL context message (exactly like Ebben POC)
         const contextMessage = `Focus text: "${selectedText.value}"`
 
         console.log('[VoiceEdit] 📤 Sending context:', contextMessage.substring(0, 150))
-        electronAPI?.log?.(`[Renderer] Context: "${contextMessage.substring(0, 150)}"`)
+        getElectronAPI()?.log?.(`[Renderer] Context: "${contextMessage.substring(0, 150)}"`)
 
         // Send context with turnComplete: false (don't trigger response yet)
         geminiAdapter.sendClientContent({
@@ -286,7 +286,7 @@ export function useVoiceEdit() {
     // isRecording.value is already set to true at the start of startRecordingWithMode()
 
     // Notify main process
-    electronAPI?.notifyRecordingStarted()
+    getElectronAPI()?.notifyRecordingStarted()
 
     console.log('[VoiceEdit] ✅ Recording started - speak when ready')
   }
@@ -313,12 +313,12 @@ export function useVoiceEdit() {
     // This ensures screen is only captured while mic is active
     if (isScreenSharing.value) {
       console.log('[VoiceEdit] Stopping screen sharing (recording ended)')
-      electronAPI?.log?.('[Renderer] Stopping screen sharing (recording ended)')
+      getElectronAPI()?.log?.('[Renderer] Stopping screen sharing (recording ended)')
       stopScreenSharing()
     }
 
     // Notify main process
-    electronAPI?.notifyRecordingStopped()
+    getElectronAPI()?.notifyRecordingStopped()
 
     console.log('[VoiceEdit] Recording stopped, mode reset to IDLE')
   }
@@ -330,15 +330,15 @@ export function useVoiceEdit() {
     try {
       if (targetAppName) {
         console.log('[VoiceEdit] Starting screen sharing for app:', targetAppName)
-        electronAPI?.log?.(`[Renderer] Starting screen capture for: ${targetAppName}`)
+        getElectronAPI()?.log?.(`[Renderer] Starting screen capture for: ${targetAppName}`)
       } else {
         console.log('[VoiceEdit] Starting screen sharing (full screen)...')
-        electronAPI?.log?.('[Renderer] Starting screen capture (full screen)')
+        getElectronAPI()?.log?.('[Renderer] Starting screen capture (full screen)')
       }
 
       // Start screen capture using Electron's desktopCapturer API
       const stream = await screenCapture.start(targetAppName)
-      electronAPI?.log?.('[Renderer] ✅ Screen capture started, initializing video capturer')
+      getElectronAPI()?.log?.('[Renderer] ✅ Screen capture started, initializing video capturer')
 
       // Initialize video frame capturer
       videoFrameCapturer = new VideoFrameCapturer(base64Jpeg => {
@@ -355,11 +355,11 @@ export function useVoiceEdit() {
       await videoFrameCapturer.start(stream)
       isScreenSharing.value = true
       console.log('[VoiceEdit] ✅ Screen sharing active')
-      electronAPI?.log?.('[Renderer] ✅ Screen sharing ACTIVE - sending frames to Gemini')
+      getElectronAPI()?.log?.('[Renderer] ✅ Screen sharing ACTIVE - sending frames to Gemini')
     } catch (error: any) {
       console.warn('[VoiceEdit] Screen sharing not available:', error.message)
       console.log('[VoiceEdit] Voice editing will work without screen context')
-      electronAPI?.log?.(`[Renderer] ❌ Screen sharing failed: ${error.message}`)
+      getElectronAPI()?.log?.(`[Renderer] ❌ Screen sharing failed: ${error.message}`)
     }
   }
 
@@ -441,7 +441,7 @@ export function useVoiceEdit() {
    * Paste text at cursor in active application
    */
   async function pasteText(text: string) {
-    electronAPI?.pasteText(text)
+    getElectronAPI()?.pasteText(text)
     console.log('[VoiceEdit] ✅ Pasted:', text.substring(0, 50))
   }
 
@@ -509,14 +509,14 @@ export function useVoiceEdit() {
    */
   function enterRecordMode(preCapturedText?: string, appName?: string) {
     console.log('[VoiceEdit] Entering RECORD MODE (hold Fn to talk)')
-    electronAPI?.log?.('[Renderer] Entered RECORD MODE - waiting for Fn key')
+    getElectronAPI()?.log?.('[Renderer] Entered RECORD MODE - waiting for Fn key')
 
     inRecordMode.value = true
     selectedText.value = preCapturedText || ''
     focusedAppName.value = appName || ''
 
     // Notify main process to start Fn key monitoring
-    electronAPI?.notifyRecordModeEntered?.()
+    getElectronAPI()?.notifyRecordModeEntered?.()
   }
 
   /**
@@ -524,7 +524,7 @@ export function useVoiceEdit() {
    */
   function exitRecordMode() {
     console.log('[VoiceEdit] Exiting RECORD MODE')
-    electronAPI?.log?.('[Renderer] Exited RECORD MODE')
+    getElectronAPI()?.log?.('[Renderer] Exited RECORD MODE')
 
     // Stop recording if currently active
     if (isRecording.value) {
@@ -536,7 +536,7 @@ export function useVoiceEdit() {
     focusedAppName.value = ''
 
     // Notify main process to stop Fn key monitoring
-    electronAPI?.notifyRecordModeExited?.()
+    getElectronAPI()?.notifyRecordModeExited?.()
   }
 
   /**
@@ -556,14 +556,14 @@ export function useVoiceEdit() {
 
     isProcessing.value = true
     console.log('[VoiceEdit] 🎯 Fn released - manually triggering processing')
-    electronAPI?.log?.('[Renderer] Fn released - triggering processing')
+    getElectronAPI()?.log?.('[Renderer] Fn released - triggering processing')
 
     try {
       // Build context message (same as silence detection)
       const contextMessage = `Focus text: "${selectedText.value}"`
 
       console.log('[VoiceEdit] 📤 Sending context:', contextMessage.substring(0, 150))
-      electronAPI?.log?.(`[Renderer] Context: "${contextMessage.substring(0, 150)}"`)
+      getElectronAPI()?.log?.(`[Renderer] Context: "${contextMessage.substring(0, 150)}"`)
 
       // Send context with turnComplete: false
       geminiAdapter.sendClientContent({
