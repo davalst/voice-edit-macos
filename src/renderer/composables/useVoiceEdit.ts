@@ -646,6 +646,8 @@ export function useVoiceEdit() {
     isRecording,
     isConnected,
     isScreenSharing,
+    selectedText,      // ✅ Export for App.vue to use in mode selection
+    focusedAppName,    // ✅ Export for App.vue to use in mode selection
     lastCommand,
     lastResult,
     currentMode,

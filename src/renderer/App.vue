@@ -226,6 +226,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useVoiceEdit } from './composables/useVoiceEdit'
+import { RecordingMode } from '../shared/types'  // ✅ Import for mode selection
 
 // Current view
 const currentView = ref('home')
@@ -254,6 +255,8 @@ const {
   inRecordMode,
   isRecording,
   isScreenSharing,
+  selectedText,      // ✅ For passing to mode functions
+  focusedAppName,    // ✅ For passing to mode functions
   lastCommand,
   lastResult,
   startRecording,
@@ -443,8 +446,9 @@ onMounted(async () => {
     })
 
     // Fn Key Push-to-Talk handler (triggered by native key monitor from main process)
-    electronAPI.onPttPressed(async (data: { isRecording: boolean }) => {
-      console.log('[App] Fn key event, should record:', data.isRecording)
+    // ✅ NEW: Accepts mode parameter to distinguish STT vs Multimodal
+    electronAPI.onPttPressed(async (data: { isRecording: boolean; mode?: string }) => {
+      console.log('[App] Fn key event, isRecording:', data.isRecording, 'mode:', data.mode)
 
       if (!inRecordMode.value) {
         console.log('[App] Not in RECORD MODE, ignoring Fn key')
@@ -452,9 +456,30 @@ onMounted(async () => {
       }
 
       if (data.isRecording) {
-        // Fn pressed - start recording
-        addLog('info', '🎤 Fn pressed - starting recording...')
-        await startRecording()
+        // ✅ Fn pressed - start recording in appropriate mode
+        if (data.mode === 'multimodal') {
+          // Fn+Ctrl pressed - start multimodal mode (mic + screen)
+          addLog('info', '🎤📺 Fn+Ctrl pressed - starting multimodal mode...')
+          console.log('[App] Starting MULTIMODAL mode')
+          await startRecordingWithMode({
+            mode: RecordingMode.STT_SCREEN_HOLD,
+            enableScreenCapture: true,
+            isToggleMode: false,
+            selectedText: selectedText.value,
+            focusedAppName: focusedAppName.value
+          })
+        } else {
+          // Fn only pressed - start STT mode (mic only, no screen)
+          addLog('info', '🎤 Fn pressed - starting STT mode...')
+          console.log('[App] Starting STT mode')
+          await startRecordingWithMode({
+            mode: RecordingMode.STT_ONLY_HOLD,
+            enableScreenCapture: false,  // ← NO screen capture
+            isToggleMode: false,
+            selectedText: selectedText.value,
+            focusedAppName: focusedAppName.value
+          })
+        }
       } else {
         // Fn released - trigger processing BEFORE stopping
         addLog('info', '🎤 Fn released - processing...')
