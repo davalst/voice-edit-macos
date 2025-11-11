@@ -401,21 +401,21 @@ onMounted(async () => {
     originalConsole.log(...args)
     const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ')
     addLog('info', message)
-    electronAPI?.writeLog?.('info', message)
+    ;(window as any).electronAPI?.writeLog?.('info', message)
   }
 
   console.warn = (...args: any[]) => {
     originalConsole.warn(...args)
     const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ')
     addLog('warn', message)
-    electronAPI?.writeLog?.('warn', message)
+    ;(window as any).electronAPI?.writeLog?.('warn', message)
   }
 
   console.error = (...args: any[]) => {
     originalConsole.error(...args)
     const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ')
     addLog('error', message)
-    electronAPI?.writeLog?.('error', message)
+    ;(window as any).electronAPI?.writeLog?.('error', message)
   }
 
   // Load settings
