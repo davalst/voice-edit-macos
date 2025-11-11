@@ -361,6 +361,40 @@ ipcMain.on('recording-stopped', () => {
   updateTrayStatus(false)
 })
 
+// Track Function+` state for push-to-talk
+let pttIsRecording = false
+
+// Enter RECORD MODE (register Function+` for push-to-talk)
+ipcMain.on('record-mode-entered', () => {
+  console.log('[Main] RECORD MODE entered - registering Function+` push-to-talk')
+  pttIsRecording = false // Reset state
+
+  // Register Function+` (Fn+`) as global shortcut (only when in RECORD MODE)
+  // NOTE: globalShortcut only fires on keydown, so we toggle on each press
+  const pttSuccess = globalShortcut.register('CommandOrControl+`', () => {
+    console.log('[Main] Function+` pressed (global shortcut)')
+    pttIsRecording = !pttIsRecording
+    mainWindow?.webContents.send('ptt-pressed', { isRecording: pttIsRecording })
+  })
+
+  if (pttSuccess) {
+    console.log('[Main] ✅ Function+` registered as global shortcut')
+  } else {
+    console.error('[Main] ❌ Failed to register Function+` shortcut')
+  }
+})
+
+// Exit RECORD MODE (unregister Function+`)
+ipcMain.on('record-mode-exited', () => {
+  console.log('[Main] RECORD MODE exited - unregistering Function+`')
+
+  // Unregister Function+` shortcut
+  if (globalShortcut.isRegistered('CommandOrControl+`')) {
+    globalShortcut.unregister('CommandOrControl+`')
+    console.log('[Main] ✅ Function+` unregistered')
+  }
+})
+
 // Paste edited text to active app
 ipcMain.on('paste-text', (_event, text: string) => {
   console.log('[Main] Pasting text:', text.substring(0, 50) + '...')

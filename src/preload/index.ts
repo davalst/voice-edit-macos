@@ -37,6 +37,19 @@ const api = {
   },
 
   /**
+   * RECORD MODE control (Function+` push-to-talk)
+   */
+  notifyRecordModeEntered: () => {
+    ipcRenderer.send('record-mode-entered')
+  },
+  notifyRecordModeExited: () => {
+    ipcRenderer.send('record-mode-exited')
+  },
+  onPttPressed: (callback: (data: { isRecording: boolean }) => void) => {
+    ipcRenderer.on('ptt-pressed', (_event, data) => callback(data))
+  },
+
+  /**
    * Clipboard & paste
    */
   pasteText: (text: string) => {

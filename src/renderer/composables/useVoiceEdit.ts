@@ -21,7 +21,8 @@ import { RecordingMode, RecordingStartEvent } from '../../shared/types'
 
 export function useVoiceEdit() {
   // State
-  const isRecording = ref(false)
+  const inRecordMode = ref(false) // NEW: RECORD MODE (idle but ready for F5)
+  const isRecording = ref(false) // Actual mic/screen recording (F5 held)
   const isConnected = ref(false)
   const isScreenSharing = ref(false)
   const lastCommand = ref('')
@@ -504,6 +505,84 @@ export function useVoiceEdit() {
   }
 
   /**
+   * Enter RECORD MODE (idle, waiting for Function+`)
+   */
+  function enterRecordMode(preCapturedText?: string, appName?: string) {
+    console.log('[VoiceEdit] Entering RECORD MODE (press Function+` to talk)')
+    electronAPI?.log?.('[Renderer] Entered RECORD MODE - waiting for Function+`')
+
+    inRecordMode.value = true
+    selectedText.value = preCapturedText || ''
+    focusedAppName.value = appName || ''
+
+    // Notify main process to register F5 global shortcut
+    electronAPI?.notifyRecordModeEntered?.()
+  }
+
+  /**
+   * Exit RECORD MODE (return to idle)
+   */
+  function exitRecordMode() {
+    console.log('[VoiceEdit] Exiting RECORD MODE')
+    electronAPI?.log?.('[Renderer] Exited RECORD MODE')
+
+    // Stop recording if currently active
+    if (isRecording.value) {
+      stopRecording()
+    }
+
+    inRecordMode.value = false
+    selectedText.value = ''
+    focusedAppName.value = ''
+
+    // Notify main process to unregister F5 global shortcut
+    electronAPI?.notifyRecordModeExited?.()
+  }
+
+  /**
+   * Manually trigger silence processing (called on F5 release)
+   */
+  async function manualTriggerProcessing() {
+    if (!geminiAdapter || !isRecording.value) {
+      console.log('[VoiceEdit] Not recording, ignoring manual trigger')
+      return
+    }
+
+    // Guard: Prevent duplicate processing
+    if (isProcessing.value) {
+      console.log('[VoiceEdit] Already processing - ignoring manual trigger')
+      return
+    }
+
+    isProcessing.value = true
+    console.log('[VoiceEdit] 🎯 F5 released - manually triggering processing')
+    electronAPI?.log?.('[Renderer] F5 released - triggering processing')
+
+    try {
+      // Build context message (same as silence detection)
+      const contextMessage = `Focus text: "${selectedText.value}"`
+
+      console.log('[VoiceEdit] 📤 Sending context:', contextMessage.substring(0, 150))
+      electronAPI?.log?.(`[Renderer] Context: "${contextMessage.substring(0, 150)}"`)
+
+      // Send context with turnComplete: false
+      geminiAdapter.sendClientContent({
+        turns: [{ text: contextMessage }],
+        turnComplete: false,
+      })
+
+      // Send turnComplete to trigger Gemini response
+      const sent = await geminiAdapter.sendTurnComplete()
+      if (sent) {
+        console.log('[VoiceEdit] ✅ Context sent, waiting for Gemini response')
+      }
+    } catch (error) {
+      console.error('[VoiceEdit] Error in manual trigger:', error)
+      isProcessing.value = false
+    }
+  }
+
+  /**
    * Cleanup all resources
    */
   function cleanup() {
@@ -516,9 +595,11 @@ export function useVoiceEdit() {
     }
 
     isConnected.value = false
+    inRecordMode.value = false
   }
 
   return {
+    inRecordMode,
     isRecording,
     isConnected,
     isScreenSharing,
@@ -529,6 +610,9 @@ export function useVoiceEdit() {
     startRecording,
     startRecordingWithMode,
     stopRecording,
+    enterRecordMode,
+    exitRecordMode,
+    manualTriggerProcessing,
     startScreenSharing,
     stopScreenSharing,
     cleanup,

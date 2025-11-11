@@ -250,6 +250,7 @@ const launchAtLogin = ref(false)
 
 // Voice edit state
 const {
+  inRecordMode,
   isRecording,
   isScreenSharing,
   lastCommand,
@@ -257,6 +258,9 @@ const {
   startRecording,
   startRecordingWithMode,
   stopRecording,
+  enterRecordMode,
+  exitRecordMode,
+  manualTriggerProcessing,
   init,
 } = useVoiceEdit()
 
@@ -332,12 +336,13 @@ function clearConsoleLogs() {
  * Toggle recording on/off
  */
 function toggleRecording(context?: { selectedText?: string; focusedAppName?: string }) {
-  if (isRecording.value) {
-    addLog('info', '⏸️ Stopping recording...')
-    stopRecording()
+  // NEW: Control+Space now toggles RECORD MODE (not recording directly)
+  if (inRecordMode.value) {
+    addLog('info', '⏸️ Exiting RECORD MODE...')
+    exitRecordMode()
   } else {
-    addLog('info', '▶️ Starting recording...')
-    startRecording(context?.selectedText, context?.focusedAppName)
+    addLog('info', '▶️ Entering RECORD MODE (press Function+` to talk)...')
+    enterRecordMode(context?.selectedText, context?.focusedAppName)
   }
 }
 
@@ -430,6 +435,28 @@ onMounted(async () => {
     electronAPI.onStopRecording(() => {
       console.log('[App] Stop recording event received')
       stopRecording()
+    })
+
+    // Function+` Push-to-Talk handler (triggered by global shortcut from main process)
+    // NOTE: globalShortcut only fires on keydown, so main process toggles state
+    electronAPI.onPttPressed(async (data: { isRecording: boolean }) => {
+      console.log('[App] Function+` pressed (global shortcut), should record:', data.isRecording)
+
+      if (!inRecordMode.value) {
+        console.log('[App] Not in RECORD MODE, ignoring Function+`')
+        return
+      }
+
+      if (data.isRecording) {
+        // Function+` pressed - start recording
+        addLog('info', '🎤 Function+` pressed - starting recording...')
+        await startRecording()
+      } else {
+        // Function+` pressed again - stop and process
+        addLog('info', '🎤 Function+` released - processing...')
+        stopRecording()
+        await manualTriggerProcessing()
+      }
     })
   }
 })
