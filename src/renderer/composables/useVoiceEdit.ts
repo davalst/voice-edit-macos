@@ -97,6 +97,12 @@ export function useVoiceEdit() {
         console.log('[VoiceEdit] 📄 Final outputText:', outputText.substring(0, 200))
         getElectronAPI()?.log?.(`[Renderer] Gemini response: ${outputText.substring(0, 200)}`)
 
+        // Guard: Skip if outputText is empty (stale/duplicate turnComplete)
+        if (!outputText || outputText.trim().length === 0) {
+          console.log('[VoiceEdit] ⚠️ Ignoring turnComplete - outputText is empty')
+          return
+        }
+
         // CRITICAL FIX: Don't stop recording - keep listening for next command
         // This matches Ebben POC behavior for continuous conversation
         // stopRecording() // ← REMOVED
