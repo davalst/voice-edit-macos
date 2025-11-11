@@ -263,6 +263,15 @@ export function useVoiceEdit() {
     audioRecorder.on('silence', async () => {
       if (!geminiAdapter || !isRecording.value) return
 
+      // IMPORTANT: In push-to-talk HOLD modes, VAD silence is DISABLED
+      // Only Fn key release triggers processing in these modes
+      const isHoldMode = currentMode.value === RecordingMode.STT_ONLY_HOLD ||
+                         currentMode.value === RecordingMode.STT_SCREEN_HOLD
+      if (isHoldMode) {
+        console.log('[VoiceEdit] VAD silence ignored in push-to-talk HOLD mode (waiting for Fn release)')
+        return
+      }
+
       // Guard: Prevent duplicate processing
       if (isProcessing.value) {
         console.log('[VoiceEdit] Already processing - ignoring silence')
