@@ -71,6 +71,9 @@ const api = {
   log: (message: string) => {
     ipcRenderer.send('log', message)
   },
+  writeLog: (level: string, message: string) => {
+    ipcRenderer.send('write-log', level, message)
+  },
   exportLogs: (logs: string) => ipcRenderer.invoke('export-logs', logs),
 
   /**

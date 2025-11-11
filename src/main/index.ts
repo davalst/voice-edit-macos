@@ -44,6 +44,32 @@ let stateMachine: HotkeyStateMachine | null = null
 let gestureDetector: GestureDetector | null = null
 let overlayManager: OverlayManager | null = null
 
+// Log file setup
+const logDir = join(app.getPath('logs'), 'Voice Edit')
+const logFile = join(logDir, 'app.log')
+
+// Ensure log directory exists
+if (!existsSync(logDir)) {
+  mkdirSync(logDir, { recursive: true })
+}
+
+/**
+ * Write log to file
+ */
+function writeLog(level: string, message: string) {
+  const timestamp = new Date().toISOString()
+  const logEntry = `[${timestamp}] ${level.toUpperCase()}: ${message}\n`
+
+  try {
+    appendFileSync(logFile, logEntry)
+  } catch (error) {
+    console.error('[Main] Failed to write log:', error)
+  }
+}
+
+// Log app startup
+writeLog('info', '=== Voice Edit Started ===')
+
 /**
  * Create main window (status/settings window)
  */
@@ -435,6 +461,11 @@ ipcMain.on('show-notification', (_event, message: string) => {
 // Log from renderer (for debugging)
 ipcMain.on('log', (_event, message: string) => {
   console.log(message)
+})
+
+// Write log from renderer to file
+ipcMain.on('write-log', (_event, level: string, message: string) => {
+  writeLog(level, message)
 })
 
 // Export console logs to file

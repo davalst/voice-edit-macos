@@ -399,17 +399,23 @@ onMounted(async () => {
 
   console.log = (...args: any[]) => {
     originalConsole.log(...args)
-    addLog('info', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' '))
+    const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ')
+    addLog('info', message)
+    electronAPI?.writeLog?.('info', message)
   }
 
   console.warn = (...args: any[]) => {
     originalConsole.warn(...args)
-    addLog('warn', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' '))
+    const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ')
+    addLog('warn', message)
+    electronAPI?.writeLog?.('warn', message)
   }
 
   console.error = (...args: any[]) => {
     originalConsole.error(...args)
-    addLog('error', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' '))
+    const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ')
+    addLog('error', message)
+    electronAPI?.writeLog?.('error', message)
   }
 
   // Load settings
