@@ -254,9 +254,11 @@ app.whenReady().then(async () => {
   createTray()
 
   // Initialize Wispr Flow-style native key monitoring (Fn + Fn+Ctrl gestures)
-  initializeKeyMonitoring()
+  // DISABLED: Native key monitoring has broken keycode detection (arrow keys trigger overlay)
+  // TODO: Fix native module keycode mapping before re-enabling
+  // initializeKeyMonitoring()
 
-  // Setup global hotkey (Control+Space - legacy mode, preserved for backward compatibility)
+  // Setup global hotkey (Control+Space - WORKING pattern from commit 6484dd9)
   const hotkey = store.get('hotkey') as string
   setupHotkeyManager(hotkey, async () => {
     console.log('[Main] Hotkey pressed (legacy Control+Space), toggling recording')
