@@ -275,11 +275,17 @@ app.whenReady().then(async () => {
   createTray()
 
   // Show window on first launch if no API key configured
+  // OR in development mode for easy testing
   const apiKey = store.get('apiKey') as string
-  if (!apiKey || apiKey.trim() === '') {
-    console.log('[Main] No API key found, showing settings window')
+  if (!apiKey || apiKey.trim() === '' || process.env.VITE_DEV_SERVER_URL) {
+    console.log('[Main] Showing window (dev mode or no API key)')
     mainWindow?.show()
   }
+
+  // Create overlay manager (for visual feedback during recording)
+  overlayManager = new OverlayManager()
+  overlayManager.create()
+  console.log('[Main] Overlay manager created')
 
   // Initialize Wispr Flow-style native key monitoring (Fn + Fn+Ctrl gestures)
   // DISABLED: Native key monitoring has broken keycode detection (arrow keys trigger overlay)
@@ -337,12 +343,20 @@ ipcMain.handle('save-config', (_event, config) => {
 // Start recording
 ipcMain.on('recording-started', () => {
   console.log('[Main] Recording started')
+
+  // Show overlay with basic mode (microphone only for Control+Space hotkey)
+  overlayManager?.show('stt_only_hold', false)
+
   updateTrayStatus(true)
 })
 
 // Stop recording
 ipcMain.on('recording-stopped', () => {
   console.log('[Main] Recording stopped')
+
+  // Hide overlay
+  overlayManager?.hide()
+
   updateTrayStatus(false)
 })
 
