@@ -2,6 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## ⚠️ CRITICAL: Working Code Reference
+
+**BEFORE making ANY changes to this codebase, READ [WORKING_CODE.md](./WORKING_CODE.md) first!**
+
+The WORKING_CODE.md document captures the LAST KNOWN WORKING VERSION (commit `6484dd9` from Nov 9 2025, 10:55 PM) with comprehensive explanations of:
+
+1. **Pre-Capture Pattern** - How to capture selected text BEFORE focus changes
+2. **VAD Auto-Send** - How silence detection triggers processing automatically
+3. **Continuous Conversation** - Why recording stays active after responses
+4. **Screen Capture Lifecycle** - When to start/stop screen sharing
+5. **Gemini System Instruction** - How to separate commands from text
+6. **Text Replacement Flow** - How edited text replaces selected text
+
+**DO NOT BREAK THESE PATTERNS!** They were carefully designed to solve specific timing and UX issues.
+
 ## Overview
 
 Voice Edit is a macOS Electron app that provides intelligent voice-controlled text editing with multimodal screen awareness, powered by Google Gemini 2.0 Flash. It allows users to speak natural language commands to edit text in ANY macOS application.
