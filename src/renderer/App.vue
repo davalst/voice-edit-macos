@@ -171,10 +171,50 @@
         </header>
 
         <div class="settings-content">
-          <div class="empty-state">
-            <div class="empty-icon">🧪</div>
-            <div class="empty-title">No experimental features</div>
-            <div class="empty-description">Check back later for beta features</div>
+          <!-- Recording Test Controls -->
+          <div class="setting-section">
+            <h3>Voice Recording Test</h3>
+            <p class="setting-description">Manual controls for testing voice recording</p>
+            <div class="test-controls">
+              <button
+                @click="toggleRecording()"
+                :class="['test-button', isRecording ? 'recording' : '']"
+              >
+                <span v-if="!isRecording">▶️ Start Recording</span>
+                <span v-else>⏸️ Stop Recording</span>
+              </button>
+              <div class="status-badge" :class="{ active: isRecording }">
+                {{ isRecording ? '🔴 Recording' : '⚪️ Idle' }}
+              </div>
+              <div v-if="isScreenSharing" class="status-badge active">
+                📹 Screen Capture Active
+              </div>
+            </div>
+          </div>
+
+          <!-- Console Log View -->
+          <div class="setting-section">
+            <div class="console-header">
+              <h3>Console Logs</h3>
+              <div class="console-buttons">
+                <button @click="exportConsoleLogs" class="export-button">Export</button>
+                <button @click="clearConsoleLogs" class="clear-button">Clear</button>
+              </div>
+            </div>
+            <div class="console-log" ref="consoleLogContainer">
+              <div
+                v-for="(log, index) in consoleLogs"
+                :key="index"
+                :class="['log-entry', `log-${log.level}`]"
+              >
+                <span class="log-time">{{ log.time }}</span>
+                <span class="log-level">{{ log.level.toUpperCase() }}</span>
+                <span class="log-message">{{ log.message }}</span>
+              </div>
+              <div v-if="consoleLogs.length === 0" class="empty-console">
+                No logs yet. Start recording to see activity.
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -219,6 +259,74 @@ const {
   stopRecording,
   init,
 } = useVoiceEdit()
+
+// Console logging
+interface ConsoleLog {
+  time: string
+  level: 'info' | 'warn' | 'error'
+  message: string
+}
+const consoleLogs = ref<ConsoleLog[]>([])
+const consoleLogContainer = ref<HTMLElement | null>(null)
+
+/**
+ * Add log entry
+ */
+function addLog(level: ConsoleLog['level'], message: string) {
+  const time = new Date().toLocaleTimeString()
+  consoleLogs.value.push({ time, level, message })
+
+  // Auto-scroll to bottom
+  setTimeout(() => {
+    if (consoleLogContainer.value) {
+      consoleLogContainer.value.scrollTop = consoleLogContainer.value.scrollHeight
+    }
+  }, 50)
+
+  // Keep unlimited logs (removed 100 limit for debugging)
+  // if (consoleLogs.value.length > 100) {
+  //   consoleLogs.value.shift()
+  // }
+}
+
+/**
+ * Clear console logs
+ */
+function clearConsoleLogs() {
+  consoleLogs.value = []
+}
+
+/**
+ * Export console logs to file
+ */
+async function exportConsoleLogs() {
+  const electronAPI = (window as any).electronAPI
+  if (!electronAPI?.exportLogs) {
+    console.error('[App] Export logs API not available')
+    return
+  }
+
+  try {
+    // Format logs as text
+    const logsText = consoleLogs.value
+      .map(log => `[${log.time}] ${log.level.toUpperCase()}: ${log.message}`)
+      .join('\n')
+
+    // Call IPC to save file
+    const result = await electronAPI.exportLogs(logsText)
+
+    if (result.success) {
+      console.log('[App] Logs exported successfully to:', result.filepath)
+      alert(`Logs exported to:\n${result.filepath}`)
+    } else {
+      console.error('[App] Failed to export logs:', result.error)
+      alert(`Failed to export logs:\n${result.error}`)
+    }
+  } catch (error: any) {
+    console.error('[App] Export logs error:', error.message)
+    alert(`Export error: ${error.message}`)
+  }
+}
 
 /**
  * Toggle recording on/off
@@ -275,6 +383,28 @@ async function saveSettings() {
  * Lifecycle
  */
 onMounted(async () => {
+  // Intercept console methods to display in UI
+  const originalConsole = {
+    log: console.log,
+    warn: console.warn,
+    error: console.error,
+  }
+
+  console.log = (...args: any[]) => {
+    originalConsole.log(...args)
+    addLog('info', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' '))
+  }
+
+  console.warn = (...args: any[]) => {
+    originalConsole.warn(...args)
+    addLog('warn', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' '))
+  }
+
+  console.error = (...args: any[]) => {
+    originalConsole.error(...args)
+    addLog('error', args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' '))
+  }
+
   // Load settings
   await loadSettings()
 
@@ -660,5 +790,145 @@ onMounted(async () => {
 
 .toggle input:checked + .toggle-slider:before {
   transform: translateX(20px);
+}
+
+/* Test Controls */
+.test-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.test-button {
+  padding: 12px 24px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.test-button:hover {
+  background: #2563eb;
+}
+
+.test-button.recording {
+  background: #ef4444;
+}
+
+.test-button.recording:hover {
+  background: #dc2626;
+}
+
+.status-badge {
+  padding: 6px 12px;
+  background: #f3f4f6;
+  color: #6b7280;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.status-badge.active {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+/* Console Log */
+.console-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.console-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.export-button,
+.clear-button {
+  padding: 6px 12px;
+  background: #f3f4f6;
+  color: #6b7280;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.export-button:hover,
+.clear-button:hover {
+  background: #e5e7eb;
+}
+
+.export-button {
+  background: #3b82f6;
+  color: white;
+}
+
+.export-button:hover {
+  background: #2563eb;
+}
+
+.console-log {
+  background: #111827;
+  border-radius: 8px;
+  padding: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+  font-family: 'SF Mono', 'Monaco', 'Courier New', monospace;
+}
+
+.log-entry {
+  display: flex;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.log-time {
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.log-level {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.log-info .log-level {
+  color: #3b82f6;
+}
+
+.log-warn .log-level {
+  color: #f59e0b;
+}
+
+.log-error .log-level {
+  color: #ef4444;
+}
+
+.log-message {
+  color: #e5e7eb;
+  flex: 1;
+  word-break: break-word;
+}
+
+.empty-console {
+  color: #6b7280;
+  text-align: center;
+  padding: 40px 20px;
+  font-size: 13px;
 }
 </style>
