@@ -335,18 +335,20 @@ export function useVoiceEdit() {
       return
     }
 
-    console.log('[VoiceEdit] User stopped (Fn released) - stopping mic immediately')
-
-    // Stop mic immediately (no more audio input)
-    if (audioRecorder) {
-      audioRecorder.stop()
-      audioRecorder = null
-    }
+    console.log('[VoiceEdit] User stopped (Fn released) - waiting 200ms before stopping mic')
 
     // If currently processing, mark for cleanup after response completes
     if (isProcessing.value) {
       console.log('[VoiceEdit] Processing in progress - will clean up after response')
       shouldStopAfterResponse = true
+
+      // Stop mic after brief delay to let audio buffer flush
+      setTimeout(() => {
+        if (audioRecorder) {
+          audioRecorder.stop()
+          audioRecorder = null
+        }
+      }, 200)
       return // Don't clean up yet - let response complete first
     }
 
@@ -356,28 +358,38 @@ export function useVoiceEdit() {
       shouldStopAfterResponse = true
       isProcessing.value = true
 
-      // Send context + turnComplete (same as VAD does on line 260-277)
-      const contextMessage = `Focus text: "${selectedText.value}"`
-      console.log('[VoiceEdit] 📤 Sending context:', contextMessage.substring(0, 150))
-      electronAPI?.log?.(`[Renderer] Manual stop - sending context + turnComplete`)
+      // CRITICAL: Wait 200ms before stopping mic to let audio buffer flush to Gemini
+      setTimeout(() => {
+        console.log('[VoiceEdit] Stopping mic after 200ms delay (audio buffer flushed)')
+        if (audioRecorder) {
+          audioRecorder.stop()
+          audioRecorder = null
+        }
 
-      geminiAdapter.sendClientContent({
-        turns: [{ text: contextMessage }],
-        turnComplete: false,
-      })
-      geminiAdapter.sendTurnComplete()
+        // Send context + turnComplete (same as VAD does on line 260-277)
+        const contextMessage = `Focus text: "${selectedText.value}"`
+        console.log('[VoiceEdit] 📤 Sending context:', contextMessage.substring(0, 150))
+        electronAPI?.log?.(`[Renderer] Manual stop - sending context + turnComplete`)
 
-      // Set timeout: if Gemini doesn't respond in 10 seconds, force cleanup
-      responseTimeout = window.setTimeout(() => {
-        console.warn('[VoiceEdit] ⚠️ No response from Gemini after 10s - forcing cleanup')
-        isProcessing.value = false
-        shouldStopAfterResponse = false
-        completeStopRecording()
-        responseTimeout = null
-      }, 10000)
+        if (geminiAdapter) {
+          geminiAdapter.sendClientContent({
+            turns: [{ text: contextMessage }],
+            turnComplete: false,
+          })
+          geminiAdapter.sendTurnComplete()
 
-      // Cleanup will happen in turnComplete handler after response
-      console.log('[VoiceEdit] ✅ Processing triggered - cleanup after response')
+          // Set timeout: if Gemini doesn't respond in 10 seconds, force cleanup
+          responseTimeout = window.setTimeout(() => {
+            console.warn('[VoiceEdit] ⚠️ No response from Gemini after 10s - forcing cleanup')
+            isProcessing.value = false
+            shouldStopAfterResponse = false
+            completeStopRecording()
+            responseTimeout = null
+          }, 10000)
+
+          console.log('[VoiceEdit] ✅ Processing triggered - cleanup after response')
+        }
+      }, 200)
     }
   }
 
