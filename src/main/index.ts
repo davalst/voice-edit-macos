@@ -227,10 +227,10 @@ app.whenReady().then(async () => {
   createWindow()
   createTray()
 
-  // Show window on first launch if no API key configured
+  // Show window on first launch if no API key configured OR in dev mode
   const apiKey = store.get('apiKey') as string
-  if (!apiKey || apiKey.trim() === '') {
-    console.log('[Main] No API key found, showing settings window')
+  if (!apiKey || apiKey.trim() === '' || process.env.VITE_DEV_SERVER_URL) {
+    console.log('[Main] Showing main window (dev mode or no API key)')
     mainWindow?.show()
   }
 

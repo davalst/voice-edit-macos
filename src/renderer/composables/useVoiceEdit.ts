@@ -40,6 +40,9 @@ export function useVoiceEdit() {
   // Flag: User released Fn before response completed
   let shouldStopAfterResponse = false
 
+  // Timeout to force cleanup if Gemini doesn't respond
+  let responseTimeout: number | null = null
+
   // Electron API
   const electronAPI = (window as any).electronAPI
 
@@ -89,6 +92,12 @@ export function useVoiceEdit() {
 
       geminiAdapter.on('turnComplete', async () => {
         console.log('[VoiceEdit] ✅ Gemini finished response')
+
+        // Clear response timeout (Gemini responded in time)
+        if (responseTimeout) {
+          clearTimeout(responseTimeout)
+          responseTimeout = null
+        }
 
         // CRITICAL FIX: Don't stop recording - keep listening for next command
         // This matches Ebben POC behavior for continuous conversation
@@ -285,6 +294,19 @@ export function useVoiceEdit() {
         const sent = await geminiAdapter.sendTurnComplete()
         if (sent) {
           console.log('[VoiceEdit] ✅ Context sent, waiting for Gemini response')
+
+          // Set timeout: if Gemini doesn't respond in 10 seconds, force reset
+          responseTimeout = window.setTimeout(() => {
+            console.warn('[VoiceEdit] ⚠️ No response from Gemini after 10s - resetting state')
+            isProcessing.value = false
+
+            // If user released Fn during this time, do cleanup
+            if (shouldStopAfterResponse) {
+              shouldStopAfterResponse = false
+              completeStopRecording()
+            }
+            responseTimeout = null
+          }, 10000)
         }
       } catch (error) {
         console.error('[VoiceEdit] Error sending context/turnComplete:', error)
@@ -344,6 +366,15 @@ export function useVoiceEdit() {
         turnComplete: false,
       })
       geminiAdapter.sendTurnComplete()
+
+      // Set timeout: if Gemini doesn't respond in 10 seconds, force cleanup
+      responseTimeout = window.setTimeout(() => {
+        console.warn('[VoiceEdit] ⚠️ No response from Gemini after 10s - forcing cleanup')
+        isProcessing.value = false
+        shouldStopAfterResponse = false
+        completeStopRecording()
+        responseTimeout = null
+      }, 10000)
 
       // Cleanup will happen in turnComplete handler after response
       console.log('[VoiceEdit] ✅ Processing triggered - cleanup after response')
