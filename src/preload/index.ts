@@ -71,6 +71,11 @@ const api = {
   getScreenSources: (opts: any) => ipcRenderer.invoke('get-screen-sources', opts),
 
   /**
+   * Console logs export
+   */
+  exportLogs: (logs: string) => ipcRenderer.invoke('export-logs', logs),
+
+  /**
    * Overlay window events
    */
   onOverlayShow: (callback: (data: { mode: string; enableScreenCapture: boolean }) => void) => {
