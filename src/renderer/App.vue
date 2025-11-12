@@ -255,11 +255,10 @@ const {
   inRecordMode,
   isRecording,
   isScreenSharing,
-  selectedText,      // ✅ For passing to mode functions
-  focusedAppName,    // ✅ For passing to mode functions
   lastCommand,
   lastResult,
-  startRecording,
+  selectedText,
+  focusedAppName,
   startRecordingWithMode,
   stopRecording,
   enterRecordMode,
@@ -337,14 +336,15 @@ function clearConsoleLogs() {
 /**
  * Toggle recording on/off
  */
-function toggleRecording() {
+function toggleRecording(context?: { selectedText?: string; focusedAppName?: string }) {
   // Control+Space toggles RECORD MODE (not recording directly)
   if (inRecordMode.value) {
     addLog('info', '⏸️ Exiting RECORD MODE...')
     exitRecordMode()
   } else {
     addLog('info', '▶️ Entering RECORD MODE (hold Fn to talk)...')
-    enterRecordMode()
+    addLog('info', `📝 Context: ${context?.focusedAppName || '(none)'}, Text: ${context?.selectedText?.substring(0, 30) || '(none)'}`)
+    enterRecordMode(context)
   }
 }
 
@@ -429,8 +429,12 @@ onMounted(async () => {
   // Listen for hotkey from main process
   const electronAPI = (window as any).electronAPI
   if (electronAPI) {
-    // Legacy Control+Space hotkey (toggle mode)
-    electronAPI.onToggleRecording((_event: any, context: { selectedText: string; focusedAppName: string }) => {
+    // Control+Space hotkey (toggle RECORD MODE with context capture)
+    electronAPI.onToggleRecording((_event: any, context: { selectedText?: string; focusedAppName?: string }) => {
+      console.log('[App] Control+Space pressed - context:', {
+        selectedText: context?.selectedText?.substring(0, 50) || '(none)',
+        focusedAppName: context?.focusedAppName || '(none)'
+      })
       toggleRecording(context)
     })
 
@@ -446,7 +450,7 @@ onMounted(async () => {
     })
 
     // Fn Key Push-to-Talk handler (triggered by native key monitor from main process)
-    // ✅ NEW: Accepts mode parameter to distinguish STT vs Multimodal
+    // ✅ FIXED: Uses CACHED context from Ctrl+Space (not from Fn press!)
     electronAPI.onPttPressed(async (data: { isRecording: boolean; mode?: string }) => {
       console.log('[App] Fn key event, isRecording:', data.isRecording, 'mode:', data.mode)
 
@@ -456,35 +460,37 @@ onMounted(async () => {
       }
 
       if (data.isRecording) {
-        // ✅ Fn pressed - start recording in appropriate mode
+        // Fn pressed - start recording using CACHED context from Ctrl+Space
+        console.log('[App] Using context captured at Ctrl+Space:')
+        console.log('  - Selected text:', selectedText.value.substring(0, 50) || '(none)')
+        console.log('  - Focused app:', focusedAppName.value)
+
         if (data.mode === 'multimodal') {
           // Fn+Ctrl pressed - start multimodal mode (mic + screen)
           addLog('info', '🎤📺 Fn+Ctrl pressed - starting multimodal mode...')
-          console.log('[App] Starting MULTIMODAL mode')
           await startRecordingWithMode({
             mode: RecordingMode.STT_SCREEN_HOLD,
             enableScreenCapture: true,
             isToggleMode: false,
-            selectedText: selectedText.value,
+            selectedText: selectedText.value,  // ← USE CACHED CONTEXT!
             focusedAppName: focusedAppName.value
           })
         } else {
           // Fn only pressed - start STT mode (mic only, no screen)
           addLog('info', '🎤 Fn pressed - starting STT mode...')
-          console.log('[App] Starting STT mode')
           await startRecordingWithMode({
             mode: RecordingMode.STT_ONLY_HOLD,
             enableScreenCapture: false,  // ← NO screen capture
             isToggleMode: false,
-            selectedText: selectedText.value,
+            selectedText: selectedText.value,  // ← USE CACHED CONTEXT!
             focusedAppName: focusedAppName.value
           })
         }
       } else {
-        // Fn released - trigger processing BEFORE stopping
+        // Fn released - trigger processing
+        // NOTE: stopRecording() is called inside manualTriggerProcessing after sending turnComplete
         addLog('info', '🎤 Fn released - processing...')
         await manualTriggerProcessing()
-        stopRecording()
       }
     })
   }

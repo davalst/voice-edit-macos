@@ -15,27 +15,34 @@ export class AudioRecorder extends EventEmitter {
   source: MediaStreamAudioSourceNode | undefined
   recording: boolean = false
   recordingWorklet: AudioWorkletNode | undefined
-  vad: VoiceActivityDetector
+  vad: VoiceActivityDetector | null = null
+  private vadEnabled: boolean
 
   private starting: Promise<void> | null = null
 
-  constructor(public sampleRate = 16000) {
+  constructor(public sampleRate = 16000, enableVAD = true) {
     super()
-    // Configure VAD for 1.5 second silence detection
-    // CRITICAL: Higher thresholds to prevent ambient sound/silence from triggering
-    this.vad = new VoiceActivityDetector({
-      silenceThreshold: 0.02, // Increased from 0.01 - requires louder audio to count as speech
-      silenceDuration: 1500, // 1.5 seconds of silence (increased to reduce false triggers)
-      energyWindowSize: 50,
-      minSpeechDuration: 1500, // Increased from 500ms to 1.5 seconds - filters out ambient noise
-      minPeakEnergy: 0.05, // NEW: Require strong peak energy to filter out weak/ambient sounds
-    })
+    this.vadEnabled = enableVAD
 
-    // When silence detected, emit 'silence' event
-    this.vad.onSilence(() => {
-      console.log('[AudioRecorder] 🔕 VAD triggered silence event - emitting to handler')
-      this.emit('silence')
-    })
+    if (enableVAD) {
+      // Configure VAD for 1.5 second silence detection
+      // CRITICAL: Higher thresholds to prevent ambient sound/silence from triggering
+      this.vad = new VoiceActivityDetector({
+        silenceThreshold: 0.02, // Increased from 0.01 - requires louder audio to count as speech
+        silenceDuration: 1500, // 1.5 seconds of silence (increased to reduce false triggers)
+        energyWindowSize: 50,
+        minSpeechDuration: 1500, // Increased from 500ms to 1.5 seconds - filters out ambient noise
+        minPeakEnergy: 0.05, // NEW: Require strong peak energy to filter out weak/ambient sounds
+      })
+
+      // When silence detected, emit 'silence' event
+      this.vad.onSilence(() => {
+        console.log('[AudioRecorder] 🔕 VAD triggered silence event - emitting to handler')
+        this.emit('silence')
+      })
+    } else {
+      console.log('[AudioRecorder] ⏹️ VAD DISABLED - push-to-hold mode, silence detection off')
+    }
   }
 
   async start() {
@@ -66,10 +73,12 @@ export class AudioRecorder extends EventEmitter {
               this.emit('data', arrayBufferString)
             }
           } else if (eventType === 'vad') {
-            // Process samples for VAD
-            const float32Samples = ev.data.data.float32Samples
-            if (float32Samples) {
-              this.vad.processSamples(float32Samples)
+            // Process samples for VAD (only if VAD is enabled)
+            if (this.vadEnabled && this.vad) {
+              const float32Samples = ev.data.data.float32Samples
+              if (float32Samples) {
+                this.vad.processSamples(float32Samples)
+              }
             }
           }
         }

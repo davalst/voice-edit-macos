@@ -138,9 +138,62 @@ export class GeminiLiveSDKAdapter extends EventEmitter<GeminiLiveEvents> {
             this.emit('error', new Error(error.message))
           },
           onclose: (event: CloseEvent) => {
-            console.log('[GeminiLiveSDK] WebSocket closed:', event.code, event.reason)
+            console.log(`[GeminiLiveSDK] WebSocket closed: ${event.code} ${event.reason}`)
+
+            const wasConnected = this.isConnected
             this.isConnected = false
+
+            // Emit close event with details
             this.emit('close', event)
+
+            // Log error details for common codes
+            if (event.code === 1007) {
+              console.error('[GeminiLiveSDK] ❌ ERROR 1007: Invalid data sent to server')
+              console.error('[GeminiLiveSDK] Common causes:')
+              console.error('  • Sent turnComplete with no audio/video data')
+              console.error('  • Sent malformed media chunks')
+              console.error('  • Sent data in wrong order or format')
+            } else if (event.code === 1006) {
+              console.error('[GeminiLiveSDK] ❌ ERROR 1006: Abnormal closure (no close frame)')
+            } else if (event.code === 1000) {
+              console.log('[GeminiLiveSDK] ✅ Normal closure')
+            }
+
+            // Don't reconnect if:
+            // 1. Normal close (code 1000)
+            // 2. Never was connected (startup failure)
+            // 3. Quota exceeded (code 1011) - reconnecting won't help
+            if (event.code === 1000 || !wasConnected) {
+              console.log('[GeminiLiveSDK] No reconnection needed')
+              return
+            }
+
+            if (event.code === 1011) {
+              console.error('[GeminiLiveSDK] ❌ Quota exceeded - NOT reconnecting')
+              console.error('[GeminiLiveSDK] Please wait for quota to reset or upgrade your API plan')
+              this.emit('error', new Error('API quota exceeded'))
+              return
+            }
+
+            // Unexpected close - attempt reconnection
+            console.warn('[GeminiLiveSDK] ⚠️ Unexpected WebSocket closure')
+            console.log('[GeminiLiveSDK] 🔄 Will attempt reconnection in 2 seconds...')
+
+            setTimeout(async () => {
+              // Only reconnect if still disconnected
+              if (!this.isConnected) {
+                console.log('[GeminiLiveSDK] 🔄 Attempting automatic reconnection...')
+
+                try {
+                  await this.connect()
+                  console.log('[GeminiLiveSDK] ✅ Reconnected successfully!')
+                  this.emit('reconnected' as any)
+                } catch (error: any) {
+                  console.error('[GeminiLiveSDK] ❌ Reconnection failed:', error.message)
+                  this.emit('reconnect-failed' as any, error)
+                }
+              }
+            }, 2000)
           },
         },
       })

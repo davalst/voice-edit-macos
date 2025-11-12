@@ -32,6 +32,10 @@ export function useVoiceEdit() {
   const isProcessing = ref(false) // Guard to prevent duplicate processing
   const currentMode = ref<RecordingMode>(RecordingMode.IDLE)
 
+  // Track chunks sent (for push-to-talk validation)
+  let audioChunksSent = 0
+  let videoFramesSent = 0
+
   // Services
   let geminiAdapter: GeminiLiveSDKAdapter | null = null
   let audioRecorder: AudioRecorder | null = null
@@ -104,21 +108,20 @@ export function useVoiceEdit() {
           return
         }
 
-        // CRITICAL FIX: Don't stop recording - keep listening for next command
-        // This matches Ebben POC behavior for continuous conversation
-        // stopRecording() // ← REMOVED
-
         await handleGeminiResponse(outputText, audioChunks)
         outputText = '' // Reset for next response
         audioChunks = [] // Reset audio chunks
 
-        // CRITICAL FIX: Add delay before resetting isProcessing
-        // This prevents rapid re-triggering (matches working commit 6484dd9)
-        // The paste operation needs time to complete before accepting new input
-        setTimeout(() => {
-          isProcessing.value = false
+        // Reset isProcessing flag
+        isProcessing.value = false
+
+        // STAY in RECORD MODE after response (wait for next Fn press or Ctrl+Space to exit)
+        if (inRecordMode.value) {
+          console.log('[VoiceEdit] ✅ Ready for next Fn key press (staying in RECORD MODE)')
+          console.log('[VoiceEdit] 💡 Press Fn to speak again, or Ctrl+Space to exit mode')
+        } else {
           console.log('[VoiceEdit] ✅ Ready for next command')
-        }, 500) // Increased from 100ms to 500ms to match working code timing
+        }
       })
 
       geminiAdapter.on('error', (error: Error) => {
@@ -128,6 +131,18 @@ export function useVoiceEdit() {
       geminiAdapter.on('close', () => {
         console.log('[VoiceEdit] Connection closed')
         isConnected.value = false
+      })
+
+      geminiAdapter.on('reconnected' as any, () => {
+        console.log('[VoiceEdit] ✅ Connection restored to Gemini')
+        isConnected.value = true
+        // You can add UI notification here: "Connection restored"
+      })
+
+      geminiAdapter.on('reconnect-failed' as any, (error: Error) => {
+        console.error('[VoiceEdit] ❌ Failed to reconnect:', error.message)
+        isConnected.value = false
+        // You can add UI notification here: "Connection lost. Please check Settings."
       })
 
       // Connect to Gemini (wait for setup to complete)
@@ -241,127 +256,105 @@ export function useVoiceEdit() {
    * Start audio recording
    */
   async function startAudioRecording() {
-    if (!geminiAdapter || !isConnected.value) {
-      console.log('[VoiceEdit] ⚠️ Cannot start audio - adapter:', !!geminiAdapter, 'connected:', isConnected.value)
-      return
+    // CRITICAL: Don't silently fail - throw error if not connected
+    if (!geminiAdapter) {
+      const error = 'Gemini adapter not initialized'
+      console.error('[VoiceEdit] ❌', error)
+      throw new Error(error)
+    }
+
+    if (!isConnected.value) {
+      const error = 'Not connected to Gemini. Connection may have been lost.'
+      console.error('[VoiceEdit] ❌', error)
+      throw new Error(error)
     }
 
     console.log('[VoiceEdit] 🎤 === AUDIO RECORDING START ===')
     console.log('[VoiceEdit] Creating AudioRecorder (16kHz)')
-    getElectronAPI()?.log?.('[Renderer] Creating AudioRecorder (16kHz)')
+
+    // Reset chunk counter
+    audioChunksSent = 0
 
     // Start audio recording
-    audioRecorder = new AudioRecorder(16000)
+    // CRITICAL: Disable VAD for push-to-hold modes (manual key release triggers processing)
+    const isPushToHold = currentMode.value === RecordingMode.STT_ONLY_HOLD ||
+                         currentMode.value === RecordingMode.STT_SCREEN_HOLD
+    const enableVAD = !isPushToHold  // Only enable VAD for toggle modes
+
+    console.log(`[VoiceEdit] VAD ${enableVAD ? 'ENABLED' : 'DISABLED'} for mode: ${currentMode.value}`)
+    audioRecorder = new AudioRecorder(16000, enableVAD)
 
     // Stream audio to Gemini continuously
     let audioChunkCount = 0
     audioRecorder.on('data', (base64Audio: string) => {
       audioChunkCount++
-      console.log(`[VoiceEdit] 🎵 Audio chunk #${audioChunkCount}: ${base64Audio.length} chars`)
+
+      // ALWAYS log chunks for debugging
+      console.log(`[VoiceEdit] 🎵 Audio chunk #${audioChunkCount}: ${base64Audio.length} chars (isRecording: ${isRecording.value})`)
 
       if (geminiAdapter && isRecording.value) {
-        console.log(`[VoiceEdit] 📤 Sending chunk #${audioChunkCount} to Gemini`)
+        console.log(`[VoiceEdit] 📤 Sending audio chunk #${audioChunkCount} to Gemini`)
         geminiAdapter.sendRealtimeInput({
           media: {
             data: base64Audio,
             mimeType: 'audio/pcm;rate=16000',
           },
         })
+        audioChunksSent++  // Track successful sends
       } else {
-        console.log(`[VoiceEdit] ⚠️ NOT sending chunk #${audioChunkCount} - adapter:`, !!geminiAdapter, 'recording:', isRecording.value)
+        console.warn(`[VoiceEdit] ⏹️ DROPPED buffered chunk #${audioChunkCount} (isRecording=${isRecording.value}, adapter=${!!geminiAdapter})`)
       }
     })
 
-    // CRITICAL: Silence detection - THEN send context + turnComplete
-    // This matches the working Ebben POC pattern exactly
-    audioRecorder.on('silence', async () => {
-      if (!geminiAdapter || !isRecording.value) return
-
-      // IMPORTANT: In push-to-talk HOLD modes, VAD silence is DISABLED
-      // Only Fn key release triggers processing in these modes
-      const isHoldMode = currentMode.value === RecordingMode.STT_ONLY_HOLD ||
-                         currentMode.value === RecordingMode.STT_SCREEN_HOLD
-      if (isHoldMode) {
-        console.log('[VoiceEdit] VAD silence ignored in push-to-talk HOLD mode (waiting for Fn release)')
-        return
-      }
-
-      // Guard: Prevent duplicate processing
-      if (isProcessing.value) {
-        console.log('[VoiceEdit] Already processing - ignoring silence')
-        return
-      }
-
-      isProcessing.value = true
-      console.log('[VoiceEdit] 🔕 Silence detected - sending context + turnComplete')
-      getElectronAPI()?.log?.(`[Renderer] Silence detected - sending context + turnComplete`)
-
-      try {
-        // Build MINIMAL context message (exactly like Ebben POC)
-        const contextMessage = `Focus text: "${selectedText.value}"`
-
-        console.log('[VoiceEdit] 📤 Sending context:', contextMessage.substring(0, 150))
-        getElectronAPI()?.log?.(`[Renderer] Context: "${contextMessage.substring(0, 150)}"`)
-
-        // Send context with turnComplete: false (don't trigger response yet)
-        geminiAdapter.sendClientContent({
-          turns: [{ text: contextMessage }],
-          turnComplete: false,
-        })
-
-        // NOW send turnComplete to trigger Gemini response
-        const sent = await geminiAdapter.sendTurnComplete()
-        if (sent) {
-          console.log('[VoiceEdit] ✅ Context sent, waiting for Gemini response')
-        }
-      } catch (error) {
-        console.error('[VoiceEdit] Error sending context/turnComplete:', error)
-        isProcessing.value = false
-      }
-    })
-
+    // CRITICAL FOR PUSH-TO-HOLD: Do NOT register VAD silence handler
+    // In push-to-hold mode, key release triggers processing, not silence detection
+    // (VAD is only used for toggle modes, registered separately)
     console.log('[VoiceEdit] 🎤 Starting microphone capture...')
+
     await audioRecorder.start()
     console.log('[VoiceEdit] ✅ Microphone active and streaming')
-    getElectronAPI()?.log?.('[Renderer] ✅ AudioRecorder active')
-    // isRecording.value is already set to true at the start of startRecordingWithMode()
 
     // Notify main process
     getElectronAPI()?.notifyRecordingStarted()
-
-    console.log('[VoiceEdit] ✅ Recording started - speak when ready')
   }
 
   /**
    * Stop voice recording
    */
   function stopRecording() {
-    // Guard: Prevent stopping if not recording
+    // Guard: Prevent duplicate stops
     if (!isRecording.value) {
       console.log('[VoiceEdit] Not recording, ignoring stop request')
       return
     }
 
+    console.log('[VoiceEdit] 🛑 Stopping recording...')
+
+    // Stop audio recording
     if (audioRecorder) {
       audioRecorder.stop()
       audioRecorder = null
+      console.log('[VoiceEdit] 🎤 Audio recorder stopped')
     }
 
+    // SECURITY: Stop screen sharing when recording stops
+    if (isScreenSharing.value) {
+      console.log('[VoiceEdit] 🎥 Stopping screen sharing (recording ended)')
+      stopScreenSharing()
+    }
+
+    // Update state
     isRecording.value = false
     currentMode.value = RecordingMode.IDLE
 
-    // SECURITY: Stop screen sharing when recording stops
-    // This ensures screen is only captured while mic is active
-    if (isScreenSharing.value) {
-      console.log('[VoiceEdit] Stopping screen sharing (recording ended)')
-      getElectronAPI()?.log?.('[Renderer] Stopping screen sharing (recording ended)')
-      stopScreenSharing()
-    }
+    // Reset chunk counters for next recording
+    audioChunksSent = 0
+    videoFramesSent = 0
 
     // Notify main process
     getElectronAPI()?.notifyRecordingStopped()
 
-    console.log('[VoiceEdit] Recording stopped, mode reset to IDLE')
+    console.log('[VoiceEdit] ✅ Recording stopped completely')
   }
 
   /**
@@ -369,38 +362,44 @@ export function useVoiceEdit() {
    */
   async function startScreenSharing(targetAppName?: string) {
     try {
-      if (targetAppName) {
-        console.log('[VoiceEdit] Starting screen sharing for app:', targetAppName)
-        getElectronAPI()?.log?.(`[Renderer] Starting screen capture for: ${targetAppName}`)
-      } else {
-        console.log('[VoiceEdit] Starting screen sharing (full screen)...')
-        getElectronAPI()?.log?.('[Renderer] Starting screen capture (full screen)')
-      }
+      console.log('[VoiceEdit] 🎥 Starting screen capture for:', targetAppName || 'entire screen')
 
-      // Start screen capture using Electron's desktopCapturer API
+      // Reset video frame counter
+      videoFramesSent = 0
+
+      // Start screen capture
       const stream = await screenCapture.start(targetAppName)
-      getElectronAPI()?.log?.('[Renderer] ✅ Screen capture started, initializing video capturer')
 
-      // Initialize video frame capturer
-      videoFrameCapturer = new VideoFrameCapturer(base64Jpeg => {
-        if (geminiAdapter && isScreenSharing.value) {
+      // Initialize video frame capturer (1 FPS)
+      videoFrameCapturer = new VideoFrameCapturer((base64Jpeg: string) => {
+        // Callback fires at 1 FPS with JPEG frames
+
+        // ALWAYS log frames for debugging
+        videoFramesSent++
+        console.log(`[VoiceEdit] 📸 Video frame #${videoFramesSent}: ${base64Jpeg.length} chars`)
+
+        if (geminiAdapter && isRecording.value && isScreenSharing.value) {
+          console.log(`[VoiceEdit] 📤 Sending video frame #${videoFramesSent} to Gemini`)
           geminiAdapter.sendRealtimeInput({
             media: {
               data: base64Jpeg,
               mimeType: 'image/jpeg',
             },
           })
+        } else {
+          console.warn(`[VoiceEdit] ⚠️ Skipping video frame #${videoFramesSent} - not recording or no adapter`)
         }
       }, 1) // 1 FPS
 
       await videoFrameCapturer.start(stream)
       isScreenSharing.value = true
-      console.log('[VoiceEdit] ✅ Screen sharing active')
-      getElectronAPI()?.log?.('[Renderer] ✅ Screen sharing ACTIVE - sending frames to Gemini')
+
+      console.log('[VoiceEdit] ✅ Screen sharing ACTIVE')
+      console.log('[VoiceEdit] 📹 Video frames will stream at 1 FPS')
     } catch (error: any) {
-      console.warn('[VoiceEdit] Screen sharing not available:', error.message)
-      console.log('[VoiceEdit] Voice editing will work without screen context')
-      getElectronAPI()?.log?.(`[Renderer] ❌ Screen sharing failed: ${error.message}`)
+      console.warn('[VoiceEdit] ⚠️ Screen sharing failed:', error.message)
+      console.log('[VoiceEdit] Voice editing will work in audio-only mode')
+      isScreenSharing.value = false
     }
   }
 
@@ -448,8 +447,25 @@ export function useVoiceEdit() {
       }
 
       const jsonResponse = JSON.parse(jsonText)
-      console.log('[VoiceEdit] 📋 Parsed response:', jsonResponse)
-      getElectronAPI()?.log?.(`[Renderer] Parsed action: ${jsonResponse.action}`)
+      console.log('[VoiceEdit] 📋 Parsed response:', {
+        action: jsonResponse.action,
+        resultLength: jsonResponse.result?.length || 0,
+        confidence: jsonResponse.confidence
+      })
+
+      // CRITICAL: Validate response has actual content
+      if (!jsonResponse.result || jsonResponse.result.trim() === '') {
+        console.error('[VoiceEdit] ❌ Gemini returned empty result!')
+        console.error('[VoiceEdit] Possible causes:')
+        console.error('  1. Recording was too short or no speech detected')
+        console.error('  2. Gemini could not understand the audio')
+        console.error('  3. Context was insufficient (video/text missing)')
+        console.error('  4. API error or rate limiting')
+
+        // Don't paste empty string - show error instead
+        console.error('[VoiceEdit] 💡 TIP: Speak clearly and hold key for at least 1 second')
+        return
+      }
 
       lastCommand.value = 'Voice command processed'
       lastResult.value = jsonResponse.result?.substring(0, 100) || ''
@@ -564,9 +580,17 @@ export function useVoiceEdit() {
   /**
    * Enter RECORD MODE (idle, waiting for Fn key)
    */
-  function enterRecordMode() {
+  function enterRecordMode(context?: { selectedText?: string; focusedAppName?: string }) {
     console.log('[VoiceEdit] Entering RECORD MODE (hold Fn to talk)')
     getElectronAPI()?.log?.('[Renderer] Entered RECORD MODE - waiting for Fn key')
+
+    // CRITICAL: Capture context NOW (from Ctrl+Space, before Fn press)
+    selectedText.value = context?.selectedText || ''
+    focusedAppName.value = context?.focusedAppName || ''
+
+    console.log('[VoiceEdit] 📝 Context captured at mode entry:')
+    console.log('  - Selected text:', selectedText.value.substring(0, 50) || '(none)')
+    console.log('  - Focused app:', focusedAppName.value)
 
     // SAFETY: Reset isProcessing flag to prevent stuck state
     // This ensures clean state when entering RECORD MODE
@@ -602,45 +626,115 @@ export function useVoiceEdit() {
   }
 
   /**
-   * Manually trigger silence processing (called on Fn key release)
+   * Manual trigger for push-to-hold mode (called when key released)
+   * This replaces VAD auto-send for hold modes
    */
   async function manualTriggerProcessing() {
-    if (!geminiAdapter || !isRecording.value) {
+    if (!isRecording.value) {
       console.log('[VoiceEdit] Not recording, ignoring manual trigger')
       return
     }
 
-    // Guard: Prevent duplicate processing
     if (isProcessing.value) {
-      console.log('[VoiceEdit] Already processing - ignoring manual trigger')
+      console.log('[VoiceEdit] Already processing, ignoring manual trigger')
       return
     }
 
+    console.log('[VoiceEdit] 🎯 Key released - manually triggering processing')
     isProcessing.value = true
-    console.log('[VoiceEdit] 🎯 Fn released - manually triggering processing')
-    console.log('[VoiceEdit] === PROCESSING START ===')
-    getElectronAPI()?.log?.('[Renderer] Fn released - triggering processing')
+
+    // CRITICAL CHECK 1: Verify we sent audio chunks
+    console.log('[VoiceEdit] 📊 Chunks sent:', {
+      audio: audioChunksSent,
+      video: videoFramesSent,
+      mode: currentMode.value,
+      screenSharing: isScreenSharing.value
+    })
+
+    if (audioChunksSent === 0) {
+      console.error('[VoiceEdit] ❌ ABORTING - No audio chunks were sent to Gemini')
+      console.error('[VoiceEdit] Possible causes:')
+      console.error('  1. Recording duration too short (need at least 500ms)')
+      console.error('  2. Microphone permission denied or not working')
+      console.error('  3. Connection to Gemini lost during recording')
+      console.error('  4. Audio recorder failed to capture audio')
+
+      // Reset state and stop
+      isProcessing.value = false
+      await stopRecording()
+
+      // Show error to user (you can add UI notification here)
+      console.error('[VoiceEdit] 💡 TIP: Hold the key for at least 1 second while speaking')
+      return
+    }
+
+    console.log('[VoiceEdit] ✅ Validation passed - proceeding with processing')
+    console.log(`[VoiceEdit] Will send turnComplete for ${audioChunksSent} audio chunks`)
+
+    // CRITICAL: Send text context BEFORE turnComplete to tell Gemini the mode
+    // STT mode (no selected text) → <DICTATION_MODE> tag for exact transcription
+    // Multimodal mode (with selected text) → <INPUT> tag for editing
+    if (selectedText.value && selectedText.value.trim().length > 0) {
+      // Multimodal mode: editing selected text
+      console.log('[VoiceEdit] 📝 Sending selected text context for editing:', selectedText.value.substring(0, 50))
+      geminiAdapter!.sendClientContent({
+        turns: [{
+          role: 'user',
+          parts: [{ text: `<INPUT>${selectedText.value}</INPUT>` }]
+        }]
+      })
+    } else {
+      // STT mode: dictation (exact transcription)
+      console.log('[VoiceEdit] 🎤 Sending DICTATION_MODE tag for exact transcription')
+      geminiAdapter!.sendClientContent({
+        turns: [{
+          role: 'user',
+          parts: [{ text: '<DICTATION_MODE>Transcribe exactly what was spoken.</DICTATION_MODE>' }]
+        }]
+      })
+    }
 
     try {
-      console.log('[VoiceEdit] 📊 Recording state:', {
-        isRecording: isRecording.value,
-        currentMode: currentMode.value,
-        isScreenSharing: isScreenSharing.value
-      })
-
-      // No text context needed - video streaming provides visual context for Fn+Ctrl
-      // For Fn only (no screen), Gemini will do pure transcription
       console.log('[VoiceEdit] 📤 Sending turnComplete to Gemini...')
-      const sent = await geminiAdapter.sendTurnComplete()
-      if (sent) {
-        console.log('[VoiceEdit] ✅ turnComplete sent, waiting for Gemini response...')
-      } else {
-        console.log('[VoiceEdit] ⚠️ Failed to send turnComplete')
+      const sent = await geminiAdapter!.sendTurnComplete()
+
+      if (!sent) {
+        console.error('[VoiceEdit] ❌ Failed to send turnComplete')
+        isProcessing.value = false
+        await stopRecording()
+        return
       }
-    } catch (error) {
-      console.error('[VoiceEdit] Error in manual trigger:', error)
+
+      console.log('[VoiceEdit] ✅ turnComplete sent successfully')
+      console.log('[VoiceEdit] 🎧 Waiting for Gemini response...')
+    } catch (error: any) {
+      console.error('[VoiceEdit] ❌ Error sending turnComplete:', error.message)
       isProcessing.value = false
+      await stopRecording()
+      return
     }
+
+    // CRITICAL: Stop audio/video streaming IMMEDIATELY to prevent sending more chunks
+    // But keep the WebSocket connection open (don't disconnect from Gemini)
+    console.log('[VoiceEdit] 🛑 Stopping audio/video capture (keeping WebSocket open)')
+
+    // FIRST: Set flag to false to prevent data event handler from sending buffered chunks
+    isRecording.value = false
+
+    // THEN: Stop audio recorder (may still emit buffered chunks, but handler will skip them)
+    if (audioRecorder) {
+      audioRecorder.stop()
+      audioRecorder = null
+      console.log('[VoiceEdit] 🎤 Audio recorder stopped')
+    }
+
+    // Stop screen sharing
+    if (isScreenSharing.value) {
+      console.log('[VoiceEdit] 🎥 Stopping screen sharing')
+      stopScreenSharing()
+    }
+
+    console.log('[VoiceEdit] ⏸️ Capture stopped, waiting for Gemini response...')
   }
 
   /**

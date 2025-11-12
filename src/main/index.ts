@@ -177,7 +177,9 @@ function updateTrayStatus(recording: boolean) {
 
 /**
  * Initialize Wispr Flow-style native key monitoring
+ * DISABLED: Currently unused - native monitoring setup is inline in app.whenReady()
  */
+// @ts-ignore - Function preserved for reference but currently unused
 function initializeKeyMonitoring() {
   console.log('[Main] Initializing native key monitoring...')
 
@@ -322,10 +324,22 @@ app.whenReady().then(async () => {
   // Setup global hotkey (Control+Space - Enter/Exit RECORD_MODE)
   const hotkey = store.get('hotkey') as string
   setupHotkeyManager(hotkey, async () => {
-    console.log('[Main] Hotkey pressed (legacy Control+Space), toggling RECORD_MODE')
+    console.log('[Main] Hotkey pressed (Control+Space), toggling RECORD_MODE')
 
-    // No pre-capture needed - context comes from video streaming during Fn+Ctrl
-    mainWindow?.webContents.send('toggle-recording', {})
+    // CRITICAL: Capture context NOW (before Fn key press)
+    // This must happen while focus is still on the target app
+    const focusedAppName = await getFocusedAppName()
+    const selectedText = await getSelectedText()
+
+    console.log('[Main] Context captured at Ctrl+Space:')
+    console.log('  - Focused app:', focusedAppName)
+    console.log('  - Selected text:', selectedText?.substring(0, 50) || '(none)')
+
+    // Send to renderer with captured context
+    mainWindow?.webContents.send('toggle-recording', {
+      selectedText,
+      focusedAppName
+    })
   })
 
   // Handle window activation on macOS
@@ -360,7 +374,7 @@ ipcMain.on('recording-started', () => {
   console.log('[Main] Recording started')
 
   // Show overlay with basic mode (microphone only for Control+Space hotkey)
-  overlayManager?.show('stt_only_hold', false)
+  overlayManager?.show(RecordingMode.STT_ONLY_HOLD, false)
 
   updateTrayStatus(true)
 })
@@ -400,20 +414,23 @@ ipcMain.on('record-mode-entered', () => {
     // Detect Fn key state changes
     if (event.fnPressed !== previousFnState) {
       if (event.fnPressed) {
-        // ✅ Fn pressed - check if Ctrl is also pressed to determine mode
+        // Fn pressed - START recording (context already captured at Ctrl+Space)
+        // Check if Ctrl is also pressed to determine mode
         if (event.ctrlPressed) {
           // Fn+Ctrl pressed - START MULTIMODAL MODE (mic + screen)
           console.log('[Main] Fn+Ctrl PRESSED - starting multimodal mode')
           mainWindow?.webContents.send('ptt-pressed', {
             isRecording: true,
-            mode: 'multimodal'  // ← Send mode parameter to renderer
+            mode: 'multimodal'
+            // NO selectedText, NO focusedAppName - already captured at Ctrl+Space!
           })
         } else {
           // Fn only pressed - START STT MODE (mic only, no screen)
           console.log('[Main] Fn PRESSED - starting STT mode')
           mainWindow?.webContents.send('ptt-pressed', {
             isRecording: true,
-            mode: 'stt'  // ← Send mode parameter to renderer
+            mode: 'stt'
+            // NO selectedText, NO focusedAppName - already captured at Ctrl+Space!
           })
         }
       } else {

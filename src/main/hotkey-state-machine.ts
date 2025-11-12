@@ -32,7 +32,6 @@ export class HotkeyStateMachine extends EventEmitter {
   // Track key press timing for hold detection
   private fnPressStartTime: number = 0
   private ctrlPressStartTime: number = 0
-  private readonly MIN_HOLD_DURATION = 150 // ms - minimum hold to trigger recording
 
   constructor() {
     super()
