@@ -48,8 +48,9 @@ export class OverlayManager {
     const { width, height } = primaryDisplay.workAreaSize
 
     // Wispr-style: Even smaller overlay (25% smaller than before)
+    // Height is doubled (120px) when recording to make it obvious
     const overlayWidth = 200
-    const overlayHeight = 60
+    const overlayHeight = 120 // Double height for visibility in record mode
 
     // Load saved position or default to bottom center
     const savedX = overlayStore.get('x') as number | null
@@ -113,7 +114,7 @@ export class OverlayManager {
   }
 
   /**
-   * Show overlay with recording mode
+   * Show overlay with recording mode (doubled height for visibility)
    */
   show(mode: RecordingMode, enableScreenCapture: boolean) {
     if (!this.overlayWindow) {
