@@ -37,6 +37,9 @@ export function useVoiceEdit() {
   let videoFrameCapturer: VideoFrameCapturer | null = null
   const screenCapture = useScreenCapture()
 
+  // Flag: User released Fn before response completed
+  let shouldStopAfterResponse = false
+
   // Electron API
   const electronAPI = (window as any).electronAPI
 
@@ -99,7 +102,15 @@ export function useVoiceEdit() {
         // This prevents VAD from triggering too quickly after paste
         setTimeout(() => {
           isProcessing.value = false
-          console.log('[VoiceEdit] ✅ Ready for next command')
+
+          // Check if user already released Fn - if so, complete cleanup
+          if (shouldStopAfterResponse) {
+            console.log('[VoiceEdit] User already stopped - cleaning up now')
+            shouldStopAfterResponse = false
+            completeStopRecording()
+          } else {
+            console.log('[VoiceEdit] ✅ Ready for next command')
+          }
         }, 100)
       })
 
@@ -291,7 +302,9 @@ export function useVoiceEdit() {
   }
 
   /**
-   * Stop voice recording
+   * Stop voice recording (called when Fn is released)
+   * If processing is in progress, sets flag to complete cleanup after response
+   * Otherwise, triggers turnComplete manually to process what was said
    */
   function stopRecording() {
     // Guard: Prevent stopping if not recording
@@ -300,10 +313,49 @@ export function useVoiceEdit() {
       return
     }
 
+    console.log('[VoiceEdit] User stopped (Fn released) - stopping mic immediately')
+
+    // Stop mic immediately (no more audio input)
     if (audioRecorder) {
       audioRecorder.stop()
       audioRecorder = null
     }
+
+    // If currently processing, mark for cleanup after response completes
+    if (isProcessing.value) {
+      console.log('[VoiceEdit] Processing in progress - will clean up after response')
+      shouldStopAfterResponse = true
+      return // Don't clean up yet - let response complete first
+    }
+
+    // If not processing yet, trigger turnComplete manually to process what was said
+    if (geminiAdapter) {
+      console.log('[VoiceEdit] User stopped before VAD - triggering processing manually')
+      shouldStopAfterResponse = true
+      isProcessing.value = true
+
+      // Send context + turnComplete (same as VAD does on line 260-277)
+      const contextMessage = `Focus text: "${selectedText.value}"`
+      console.log('[VoiceEdit] 📤 Sending context:', contextMessage.substring(0, 150))
+      electronAPI?.log?.(`[Renderer] Manual stop - sending context + turnComplete`)
+
+      geminiAdapter.sendClientContent({
+        turns: [{ text: contextMessage }],
+        turnComplete: false,
+      })
+      geminiAdapter.sendTurnComplete()
+
+      // Cleanup will happen in turnComplete handler after response
+      console.log('[VoiceEdit] ✅ Processing triggered - cleanup after response')
+    }
+  }
+
+  /**
+   * Complete stop recording cleanup (called after response completes)
+   * This is the full cleanup that was previously in stopRecording()
+   */
+  function completeStopRecording() {
+    console.log('[VoiceEdit] Completing full cleanup...')
 
     isRecording.value = false
     currentMode.value = RecordingMode.IDLE
@@ -319,7 +371,7 @@ export function useVoiceEdit() {
     // Notify main process
     electronAPI?.notifyRecordingStopped()
 
-    console.log('[VoiceEdit] Recording stopped, mode reset to IDLE')
+    console.log('[VoiceEdit] ✅ Recording stopped, mode reset to IDLE')
   }
 
   /**
