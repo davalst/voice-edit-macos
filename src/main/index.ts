@@ -259,6 +259,48 @@ function initializeKeyMonitoring() {
 }
 
 /**
+ * Setup Fn key toggle (replaces Ctrl+Space hotkey)
+ * Fn PRESS once = start recording
+ * Fn PRESS again = stop recording
+ */
+function setupFnKeyToggle() {
+  console.log('[Main] Setting up Fn key toggle monitoring...')
+
+  const fnKeyMonitor = new KeyMonitor()
+  let previousFnState = false
+
+  fnKeyMonitor.on('keyStateChange', async (event: { fnPressed: boolean; ctrlPressed: boolean; timestamp: number }) => {
+    // Detect Fn key PRESS (ignore release, ignore arrow keys)
+    if (event.fnPressed && !previousFnState) {
+      console.log('[Main] Fn KEY PRESSED - toggling recording')
+
+      // CRITICAL: Capture context BEFORE starting recording (same as working Ctrl+Space)
+      const focusedAppName = await getFocusedAppName()
+      const selectedText = await getSelectedText()
+
+      console.log('[Main] Focused app:', focusedAppName)
+      console.log('[Main] Pre-captured selected text:', selectedText?.substring(0, 50) || '(none)')
+
+      // Send to renderer with pre-captured context (exactly like Ctrl+Space)
+      mainWindow?.webContents.send('toggle-recording', {
+        selectedText,
+        focusedAppName
+      })
+    }
+
+    previousFnState = event.fnPressed
+  })
+
+  const success = fnKeyMonitor.start()
+  if (success) {
+    console.log('[Main] ✅ Fn key toggle monitoring active')
+  } else {
+    console.error('[Main] ❌ Failed to start Fn key monitoring')
+    console.error('[Main] Please grant Accessibility permissions')
+  }
+}
+
+/**
  * App ready event
  */
 app.whenReady().then(async () => {
@@ -284,26 +326,8 @@ app.whenReady().then(async () => {
   // Initialize Wispr Flow-style native key monitoring (Fn + Fn+Ctrl gestures)
   initializeKeyMonitoring()
 
-  // Setup global hotkey (Control+Space - legacy mode, preserved for backward compatibility)
-  const hotkey = store.get('hotkey') as string
-  setupHotkeyManager(hotkey, async () => {
-    console.log('[Main] Hotkey pressed (legacy Control+Space), toggling recording')
-
-    // CRITICAL FIX: Capture context BEFORE starting recording
-    // 1. Get focused app name (for window-specific screen capture)
-    // 2. Get selected text (for context)
-    const focusedAppName = await getFocusedAppName()
-    const selectedText = await getSelectedText()
-
-    console.log('[Main] Focused app:', focusedAppName)
-    console.log('[Main] Pre-captured selected text:', selectedText?.substring(0, 50) || '(none)')
-
-    // Send to renderer with pre-captured context
-    mainWindow?.webContents.send('toggle-recording', {
-      selectedText,
-      focusedAppName
-    })
-  })
+  // Setup Fn key toggle monitoring (replaces Control+Space)
+  setupFnKeyToggle()
 
   // Handle window activation on macOS
   app.on('activate', () => {

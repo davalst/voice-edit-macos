@@ -42,7 +42,15 @@ CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef 
   bool fnChanged = (fnNowPressed != fnKeyPressed);
   bool ctrlChanged = (ctrlNowPressed != ctrlKeyPressed);
 
-  if (fnChanged || ctrlChanged) {
+  // CRITICAL FIX: Ignore arrow keys (123=left, 124=right, 125=down, 126=up)
+  // Arrow keys with Fn pressed trigger Home/End/PageUp/PageDown, causing false Fn state changes
+  if (keyCode == 123 || keyCode == 124 || keyCode == 125 || keyCode == 126) {
+    return event; // Pass through arrow keys without triggering state change
+  }
+
+  // CRITICAL FIX: Only trigger on FlagsChanged events (modifier-only changes)
+  // This prevents regular key presses from triggering false state changes
+  if (type == kCGEventFlagsChanged && (fnChanged || ctrlChanged)) {
     fnKeyPressed = fnNowPressed;
     ctrlKeyPressed = ctrlNowPressed;
 
