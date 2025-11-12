@@ -20,7 +20,7 @@ export class VideoFrameCapturer {
     this.video.playsInline = true
   }
 
-  async start(stream: MediaStream) {
+  async start(stream: MediaStream, singleFrameOnly: boolean = false) {
     this.video.srcObject = stream
 
     // Wait for video to be ready
@@ -46,12 +46,21 @@ export class VideoFrameCapturer {
       })
     })
 
-    // Capture frames at specified FPS
-    const intervalMs = 1000 / this.fps
-    console.log(`[VideoFrameCapturer] Starting frame capture at ${this.fps} FPS (${intervalMs}ms interval)`)
-    this.intervalId = window.setInterval(() => {
+    if (singleFrameOnly) {
+      // SINGLE FRAME MODE: Capture one frame immediately and stop
+      console.log('[VideoFrameCapturer] Single frame mode - capturing one frame only')
+      // Wait a bit for video to stabilize (50ms)
+      await new Promise(resolve => setTimeout(resolve, 50))
       this.captureFrame()
-    }, intervalMs)
+      console.log('[VideoFrameCapturer] ✅ Single frame captured, stopping')
+    } else {
+      // CONTINUOUS MODE: Capture frames at specified FPS
+      const intervalMs = 1000 / this.fps
+      console.log(`[VideoFrameCapturer] Starting continuous frame capture at ${this.fps} FPS (${intervalMs}ms interval)`)
+      this.intervalId = window.setInterval(() => {
+        this.captureFrame()
+      }, intervalMs)
+    }
   }
 
   private captureFrame() {

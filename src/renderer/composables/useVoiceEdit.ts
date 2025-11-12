@@ -370,16 +370,15 @@ export function useVoiceEdit() {
       // Start screen capture
       const stream = await screenCapture.start(targetAppName)
 
-      // Initialize video frame capturer (1 FPS)
+      // Initialize video frame capturer for SINGLE FRAME capture
       videoFrameCapturer = new VideoFrameCapturer((base64Jpeg: string) => {
-        // Callback fires at 1 FPS with JPEG frames
+        // Callback fires once with a single frame
 
-        // ALWAYS log frames for debugging
         videoFramesSent++
-        console.log(`[VoiceEdit] 📸 Video frame #${videoFramesSent}: ${base64Jpeg.length} chars`)
+        console.log(`[VoiceEdit] 📸 Single video frame captured: ${base64Jpeg.length} chars`)
 
         if (geminiAdapter && isRecording.value && isScreenSharing.value) {
-          console.log(`[VoiceEdit] 📤 Sending video frame #${videoFramesSent} to Gemini`)
+          console.log(`[VoiceEdit] 📤 Sending single frame to Gemini`)
           geminiAdapter.sendRealtimeInput({
             media: {
               data: base64Jpeg,
@@ -387,15 +386,16 @@ export function useVoiceEdit() {
             },
           })
         } else {
-          console.warn(`[VoiceEdit] ⚠️ Skipping video frame #${videoFramesSent} - not recording or no adapter`)
+          console.warn(`[VoiceEdit] ⚠️ Cannot send frame - not recording or no adapter`)
         }
-      }, 1) // 1 FPS
+      }, 1) // FPS parameter unused in single frame mode
 
-      await videoFrameCapturer.start(stream)
+      // Start in SINGLE FRAME mode (captures one frame and stops)
+      await videoFrameCapturer.start(stream, true)
       isScreenSharing.value = true
 
-      console.log('[VoiceEdit] ✅ Screen sharing ACTIVE')
-      console.log('[VoiceEdit] 📹 Video frames will stream at 1 FPS')
+      console.log('[VoiceEdit] ✅ Screen capture ACTIVE (single frame mode)')
+      console.log('[VoiceEdit] 📸 One frame captured showing highlighted text')
     } catch (error: any) {
       console.warn('[VoiceEdit] ⚠️ Screen sharing failed:', error.message)
       console.log('[VoiceEdit] Voice editing will work in audio-only mode')
