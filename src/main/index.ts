@@ -12,12 +12,10 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, clipboard, Tray, Menu, nativeImage, desktopCapturer } from 'electron'
 import { join } from 'path'
 import Store from 'electron-store'
-import { setupHotkeyManager } from './hotkey-manager'
 import { simulatePaste, copyToClipboard, getSelectedText, getFocusedAppName } from './clipboard-manager'
 import { requestPermissions } from './permissions'
 import { KeyMonitor } from './key-monitor-native'
-import { HotkeyStateMachine, RecordingMode } from './hotkey-state-machine'
-import { GestureDetector } from './gesture-detector'
+import { RecordingMode } from './hotkey-state-machine'
 import { OverlayManager } from './overlay-manager'
 
 // Configuration store
@@ -37,10 +35,8 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isRecording = false
 
-// Wispr Flow feature: Native key monitoring + state machine + overlay
+// Simple Fn key monitoring + overlay
 let keyMonitor: KeyMonitor | null = null
-let stateMachine: HotkeyStateMachine | null = null
-let gestureDetector: GestureDetector | null = null
 let overlayManager: OverlayManager | null = null
 
 /**
@@ -149,111 +145,67 @@ function updateTrayStatus(recording: boolean) {
 }
 
 /**
- * Initialize Wispr Flow-style native key monitoring
+ * ✅ SIMPLE Fn key monitoring - direct replacement for Ctrl+Space
+ * Fn PRESS = Start recording (same as first Ctrl+Space)
+ * Fn RELEASE = Stop recording (same as second Ctrl+Space)
  */
-function initializeKeyMonitoring() {
-  console.log('[Main] Initializing native key monitoring...')
+function initializeSimpleFnKeyMonitoring() {
+  console.log('[Main] Initializing simple Fn key monitoring (replaces Ctrl+Space)...')
 
-  // Create instances
+  // Create key monitor and overlay
   keyMonitor = new KeyMonitor()
-  stateMachine = new HotkeyStateMachine()
-  gestureDetector = new GestureDetector()
   overlayManager = new OverlayManager()
-
-  // Create overlay window (hidden initially)
   overlayManager.create()
 
-  // Wire up gesture detector to state machine
-  gestureDetector.on('fnDoubleTap', (timestamp) => {
-    stateMachine?.onFnDoubleTap(timestamp)
-  })
-
-  gestureDetector.on('fnCtrlDoubleTap', (timestamp) => {
-    stateMachine?.onFnCtrlDoubleTap(timestamp)
-  })
-
-  // Wire up state machine to renderer + overlay
-  stateMachine.on('recordingStarted', async (config: { mode: RecordingMode; enableScreenCapture: boolean; isToggleMode: boolean }) => {
-    console.log('[Main] Recording started:', config.mode, config.enableScreenCapture ? '+ Screen' : '')
-
-    // CRITICAL: Capture context BEFORE showing overlay to preserve cursor focus
-    // 1. Get focused app name (for window-specific screen capture)
-    // 2. Get selected text (uses Cmd+C, which briefly affects focus)
-    const focusedAppName = await getFocusedAppName()
-    const selectedText = await getSelectedText()
-
-    console.log('[Main] Context captured - Focused app:', focusedAppName, 'Selected text:', selectedText?.substring(0, 50) || '(none)')
-
-    // NOW show overlay (after context capture to avoid stealing focus)
-    overlayManager?.show(config.mode, config.enableScreenCapture)
-
-    // Send to renderer with recording mode configuration
-    mainWindow?.webContents.send('start-recording', {
-      mode: config.mode,
-      enableScreenCapture: config.enableScreenCapture,
-      isToggleMode: config.isToggleMode,
-      selectedText,
-      focusedAppName
-    })
-
-    updateTrayStatus(true)
-  })
-
-  stateMachine.on('recordingStopped', () => {
-    console.log('[Main] Recording stopped')
-
-    // Hide overlay
-    overlayManager?.hide()
-
-    mainWindow?.webContents.send('stop-recording')
-    updateTrayStatus(false)
-  })
-
-  // Track previous key state to detect changes
+  // Track previous Fn state
   let previousFnState = false
-  let previousCtrlState = false
 
-  // Wire up key monitor to both state machine and gesture detector
-  keyMonitor.on('keyStateChange', (event: { fnPressed: boolean; ctrlPressed: boolean; timestamp: number }) => {
-    console.log('[Main] Key state change:', {
-      fn: event.fnPressed ? 'DOWN' : 'UP',
-      ctrl: event.ctrlPressed ? 'DOWN' : 'UP',
-      timestamp: event.timestamp
-    })
-
+  // Listen for Fn key press/release
+  keyMonitor.on('keyStateChange', async (event: { fnPressed: boolean; ctrlPressed: boolean; timestamp: number }) => {
     // Detect Fn key changes
     if (event.fnPressed !== previousFnState) {
       if (event.fnPressed) {
-        console.log('[Main] → Fn PRESSED')
-        gestureDetector?.onKeyPress(true, event.ctrlPressed, event.timestamp)
-        stateMachine?.onFnPress(event.timestamp)
+        // Fn PRESSED → Start recording (same as first Ctrl+Space in fe97b91)
+        console.log('[Main] Fn PRESSED - starting recording')
+
+        // Capture context BEFORE starting recording
+        const focusedAppName = await getFocusedAppName()
+        const selectedText = await getSelectedText()
+
+        console.log('[Main] Context captured - Focused app:', focusedAppName, 'Selected text:', selectedText?.substring(0, 50) || '(none)')
+
+        // Show overlay
+        overlayManager?.show(RecordingMode.STT_SCREEN_HOLD, true)
+
+        // Send to renderer (exactly like Ctrl+Space does)
+        mainWindow?.webContents.send('toggle-recording', {
+          selectedText,
+          focusedAppName
+        })
+
+        updateTrayStatus(true)
       } else {
-        console.log('[Main] → Fn RELEASED')
-        gestureDetector?.onKeyRelease(false, event.ctrlPressed, event.timestamp)
-        stateMachine?.onFnRelease(event.timestamp)
+        // Fn RELEASED → Stop recording (same as second Ctrl+Space in fe97b91)
+        console.log('[Main] Fn RELEASED - stopping recording')
+
+        // Hide overlay
+        overlayManager?.hide()
+
+        // Send to renderer (exactly like Ctrl+Space does when already recording)
+        mainWindow?.webContents.send('toggle-recording', {})
+
+        updateTrayStatus(false)
       }
       previousFnState = event.fnPressed
-    }
-
-    // Detect Ctrl key changes
-    if (event.ctrlPressed !== previousCtrlState) {
-      if (event.ctrlPressed) {
-        console.log('[Main] → Ctrl PRESSED')
-        stateMachine?.onCtrlPress(event.timestamp)
-      } else {
-        console.log('[Main] → Ctrl RELEASED')
-        stateMachine?.onCtrlRelease(event.timestamp)
-      }
-      previousCtrlState = event.ctrlPressed
     }
   })
 
   // Start monitoring
   const success = keyMonitor.start()
   if (success) {
-    console.log('[Main] ✅ Native key monitoring active (Fn + Fn+Ctrl gestures enabled)')
+    console.log('[Main] ✅ Fn key monitoring active (simple press/release)')
   } else {
-    console.error('[Main] ❌ Failed to start native key monitoring')
+    console.error('[Main] ❌ Failed to start Fn key monitoring')
     console.error('[Main] Please grant Accessibility permissions in System Preferences')
   }
 }
@@ -281,29 +233,9 @@ app.whenReady().then(async () => {
     mainWindow?.show()
   }
 
-  // Initialize Wispr Flow-style native key monitoring (Fn + Fn+Ctrl gestures)
-  initializeKeyMonitoring()
-
-  // Setup global hotkey (Control+Space - legacy mode, preserved for backward compatibility)
-  const hotkey = store.get('hotkey') as string
-  setupHotkeyManager(hotkey, async () => {
-    console.log('[Main] Hotkey pressed (legacy Control+Space), toggling recording')
-
-    // CRITICAL FIX: Capture context BEFORE starting recording
-    // 1. Get focused app name (for window-specific screen capture)
-    // 2. Get selected text (for context)
-    const focusedAppName = await getFocusedAppName()
-    const selectedText = await getSelectedText()
-
-    console.log('[Main] Focused app:', focusedAppName)
-    console.log('[Main] Pre-captured selected text:', selectedText?.substring(0, 50) || '(none)')
-
-    // Send to renderer with pre-captured context
-    mainWindow?.webContents.send('toggle-recording', {
-      selectedText,
-      focusedAppName
-    })
-  })
+  // ✅ NEW: Simple Fn key monitoring (replaces Control+Space hotkey)
+  // Fn PRESS = start recording, Fn RELEASE = let VAD handle (or manual trigger later)
+  initializeSimpleFnKeyMonitoring()
 
   // Handle window activation on macOS
   app.on('activate', () => {
