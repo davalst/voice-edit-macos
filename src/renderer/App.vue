@@ -76,13 +76,64 @@
       <div v-else-if="currentView === 'dictionary'" class="view">
         <header class="view-header">
           <h1>Dictionary</h1>
-          <button class="primary-button">Add new</button>
+          <button class="primary-button" @click="showAddDictionaryDialog">Add new</button>
         </header>
 
-        <div class="empty-state">
+        <!-- Empty state -->
+        <div v-if="dictionaryEntries.length === 0" class="empty-state">
           <div class="empty-icon">📖</div>
           <div class="empty-title">No custom words yet</div>
           <div class="empty-description">Add words and names for better recognition</div>
+        </div>
+
+        <!-- Dictionary entries list -->
+        <div v-else class="entries-list">
+          <div
+            v-for="entry in dictionaryEntries"
+            :key="entry.id"
+            class="entry-item"
+          >
+            <div class="entry-content">
+              <div class="entry-word">{{ entry.correctWord }}</div>
+              <div class="entry-variants">{{ entry.incorrectVariants.join(', ') }}</div>
+            </div>
+            <div class="entry-actions">
+              <button class="icon-button" @click="editDictionaryEntry(entry)">✏️</button>
+              <button class="icon-button delete" @click="deleteDictionaryEntry(entry.id)">✕</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add/Edit Dialog -->
+        <div v-if="showDictionaryDialog" class="dialog-overlay" @click="closeDictionaryDialog">
+          <div class="dialog" @click.stop>
+            <h2>{{ dictionaryEditMode ? 'Edit' : 'Add' }} Dictionary Entry</h2>
+
+            <div class="form-group">
+              <label>Correct Word</label>
+              <input
+                v-model="dictionaryForm.correctWord"
+                type="text"
+                placeholder="e.g., Ebben"
+                class="text-input"
+              />
+            </div>
+
+            <div class="form-group">
+              <label>Incorrect Variants (comma-separated)</label>
+              <input
+                v-model="dictionaryVariantsInput"
+                type="text"
+                placeholder="e.g., Ebon, Evan, Eben"
+                class="text-input"
+              />
+            </div>
+
+            <div class="dialog-actions">
+              <button class="secondary-button" @click="closeDictionaryDialog">Cancel</button>
+              <button class="primary-button" @click="saveDictionaryEntry">Save</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -90,13 +141,64 @@
       <div v-else-if="currentView === 'snippets'" class="view">
         <header class="view-header">
           <h1>Snippets</h1>
-          <button class="primary-button">Add new</button>
+          <button class="primary-button" @click="showAddSnippetDialog">Add new</button>
         </header>
 
-        <div class="empty-state">
+        <!-- Empty state -->
+        <div v-if="snippetEntries.length === 0" class="empty-state">
           <div class="empty-icon">✂️</div>
           <div class="empty-title">No snippets yet</div>
           <div class="empty-description">Save shortcuts to expand text instantly</div>
+        </div>
+
+        <!-- Snippets entries list -->
+        <div v-else class="entries-list">
+          <div
+            v-for="entry in snippetEntries"
+            :key="entry.id"
+            class="entry-item"
+          >
+            <div class="entry-content">
+              <div class="entry-word">{{ entry.trigger }}</div>
+              <div class="entry-variants">{{ entry.expansion }}</div>
+            </div>
+            <div class="entry-actions">
+              <button class="icon-button" @click="editSnippetEntry(entry)">✏️</button>
+              <button class="icon-button delete" @click="deleteSnippetEntry(entry.id)">✕</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add/Edit Dialog -->
+        <div v-if="showSnippetDialog" class="dialog-overlay" @click="closeSnippetDialog">
+          <div class="dialog" @click.stop>
+            <h2>{{ snippetEditMode ? 'Edit' : 'Add' }} Snippet</h2>
+
+            <div class="form-group">
+              <label>Trigger Phrase</label>
+              <input
+                v-model="snippetForm.trigger"
+                type="text"
+                placeholder="e.g., personal email"
+                class="text-input"
+              />
+            </div>
+
+            <div class="form-group">
+              <label>Expansion Text</label>
+              <textarea
+                v-model="snippetForm.expansion"
+                placeholder="e.g., user@example.com"
+                class="text-input"
+                rows="4"
+              ></textarea>
+            </div>
+
+            <div class="dialog-actions">
+              <button class="secondary-button" @click="closeSnippetDialog">Cancel</button>
+              <button class="primary-button" @click="saveSnippetEntry">Save</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -248,6 +350,31 @@ const hotkey = ref('Control+Space')
 const screenSharingEnabled = ref(true)
 const launchAtLogin = ref(false)
 
+// Dictionary state
+interface DictionaryEntry {
+  id: string
+  correctWord: string
+  incorrectVariants: string[]
+}
+const dictionaryEntries = ref<DictionaryEntry[]>([])
+const showDictionaryDialog = ref(false)
+const dictionaryEditMode = ref(false)
+const dictionaryEditId = ref<string | null>(null)
+const dictionaryForm = ref({ correctWord: '', incorrectVariants: [] as string[] })
+const dictionaryVariantsInput = ref('')
+
+// Snippets state
+interface SnippetEntry {
+  id: string
+  trigger: string
+  expansion: string
+}
+const snippetEntries = ref<SnippetEntry[]>([])
+const showSnippetDialog = ref(false)
+const snippetEditMode = ref(false)
+const snippetEditId = ref<string | null>(null)
+const snippetForm = ref({ trigger: '', expansion: '' })
+
 // Voice edit state
 const {
   isRecording,
@@ -380,6 +507,168 @@ async function saveSettings() {
 }
 
 /**
+ * Load Dictionary entries
+ */
+async function loadDictionaryEntries() {
+  const electronAPI = (window as any).electronAPI
+  if (!electronAPI?.dictionaryGetAll) return
+
+  dictionaryEntries.value = await electronAPI.dictionaryGetAll()
+}
+
+/**
+ * Show add dictionary dialog
+ */
+function showAddDictionaryDialog() {
+  dictionaryEditMode.value = false
+  dictionaryEditId.value = null
+  dictionaryForm.value = { correctWord: '', incorrectVariants: [] }
+  dictionaryVariantsInput.value = ''
+  showDictionaryDialog.value = true
+}
+
+/**
+ * Edit dictionary entry
+ */
+function editDictionaryEntry(entry: DictionaryEntry) {
+  dictionaryEditMode.value = true
+  dictionaryEditId.value = entry.id
+  dictionaryForm.value = { correctWord: entry.correctWord, incorrectVariants: [...entry.incorrectVariants] }
+  dictionaryVariantsInput.value = entry.incorrectVariants.join(', ')
+  showDictionaryDialog.value = true
+}
+
+/**
+ * Save dictionary entry
+ */
+async function saveDictionaryEntry() {
+  const electronAPI = (window as any).electronAPI
+  if (!electronAPI) return
+
+  // Parse variants from comma-separated input
+  const variants = dictionaryVariantsInput.value
+    .split(',')
+    .map(v => v.trim())
+    .filter(v => v.length > 0)
+
+  const entry = {
+    correctWord: dictionaryForm.value.correctWord.trim(),
+    incorrectVariants: variants
+  }
+
+  if (!entry.correctWord || entry.incorrectVariants.length === 0) {
+    alert('Please fill in all fields')
+    return
+  }
+
+  if (dictionaryEditMode.value && dictionaryEditId.value) {
+    await electronAPI.dictionaryUpdate(dictionaryEditId.value, entry)
+  } else {
+    await electronAPI.dictionaryAdd(entry)
+  }
+
+  await loadDictionaryEntries()
+  closeDictionaryDialog()
+}
+
+/**
+ * Delete dictionary entry
+ */
+async function deleteDictionaryEntry(id: string) {
+  if (!confirm('Are you sure you want to delete this entry?')) return
+
+  const electronAPI = (window as any).electronAPI
+  if (!electronAPI?.dictionaryDelete) return
+
+  await electronAPI.dictionaryDelete(id)
+  await loadDictionaryEntries()
+}
+
+/**
+ * Close dictionary dialog
+ */
+function closeDictionaryDialog() {
+  showDictionaryDialog.value = false
+}
+
+/**
+ * Load Snippet entries
+ */
+async function loadSnippetEntries() {
+  const electronAPI = (window as any).electronAPI
+  if (!electronAPI?.snippetsGetAll) return
+
+  snippetEntries.value = await electronAPI.snippetsGetAll()
+}
+
+/**
+ * Show add snippet dialog
+ */
+function showAddSnippetDialog() {
+  snippetEditMode.value = false
+  snippetEditId.value = null
+  snippetForm.value = { trigger: '', expansion: '' }
+  showSnippetDialog.value = true
+}
+
+/**
+ * Edit snippet entry
+ */
+function editSnippetEntry(entry: SnippetEntry) {
+  snippetEditMode.value = true
+  snippetEditId.value = entry.id
+  snippetForm.value = { trigger: entry.trigger, expansion: entry.expansion }
+  showSnippetDialog.value = true
+}
+
+/**
+ * Save snippet entry
+ */
+async function saveSnippetEntry() {
+  const electronAPI = (window as any).electronAPI
+  if (!electronAPI) return
+
+  const entry = {
+    trigger: snippetForm.value.trigger.trim(),
+    expansion: snippetForm.value.expansion.trim()
+  }
+
+  if (!entry.trigger || !entry.expansion) {
+    alert('Please fill in all fields')
+    return
+  }
+
+  if (snippetEditMode.value && snippetEditId.value) {
+    await electronAPI.snippetsUpdate(snippetEditId.value, entry)
+  } else {
+    await electronAPI.snippetsAdd(entry)
+  }
+
+  await loadSnippetEntries()
+  closeSnippetDialog()
+}
+
+/**
+ * Delete snippet entry
+ */
+async function deleteSnippetEntry(id: string) {
+  if (!confirm('Are you sure you want to delete this snippet?')) return
+
+  const electronAPI = (window as any).electronAPI
+  if (!electronAPI?.snippetsDelete) return
+
+  await electronAPI.snippetsDelete(id)
+  await loadSnippetEntries()
+}
+
+/**
+ * Close snippet dialog
+ */
+function closeSnippetDialog() {
+  showSnippetDialog.value = false
+}
+
+/**
  * Lifecycle
  */
 onMounted(async () => {
@@ -407,6 +696,10 @@ onMounted(async () => {
 
   // Load settings
   await loadSettings()
+
+  // Load Dictionary and Snippets
+  await loadDictionaryEntries()
+  await loadSnippetEntries()
 
   // Initialize voice edit engine
   init(apiKey.value, screenSharingEnabled.value)

@@ -76,6 +76,26 @@ const api = {
   exportLogs: (logs: string) => ipcRenderer.invoke('export-logs', logs),
 
   /**
+   * Dictionary CRUD operations
+   */
+  dictionaryGetAll: () => ipcRenderer.invoke('dictionary-get-all'),
+  dictionaryAdd: (entry: { correctWord: string; incorrectVariants: string[] }) =>
+    ipcRenderer.invoke('dictionary-add', entry),
+  dictionaryUpdate: (id: string, entry: { correctWord: string; incorrectVariants: string[] }) =>
+    ipcRenderer.invoke('dictionary-update', id, entry),
+  dictionaryDelete: (id: string) => ipcRenderer.invoke('dictionary-delete', id),
+
+  /**
+   * Snippets CRUD operations
+   */
+  snippetsGetAll: () => ipcRenderer.invoke('snippets-get-all'),
+  snippetsAdd: (entry: { trigger: string; expansion: string }) =>
+    ipcRenderer.invoke('snippets-add', entry),
+  snippetsUpdate: (id: string, entry: { trigger: string; expansion: string }) =>
+    ipcRenderer.invoke('snippets-update', id, entry),
+  snippetsDelete: (id: string) => ipcRenderer.invoke('snippets-delete', id),
+
+  /**
    * Overlay window events
    */
   onOverlayShow: (callback: (data: { mode: string; enableScreenCapture: boolean }) => void) => {

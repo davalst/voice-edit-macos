@@ -30,6 +30,11 @@ const store = new Store({
     silenceDuration: 1500,
     screenSharingEnabled: true,
     launchAtLogin: false,
+    showOverlay: true,
+    showInDock: false,
+    dictationSoundEffects: false,
+    dictionary: [],
+    snippets: [],
   },
 })
 
@@ -457,6 +462,76 @@ ipcMain.handle('export-logs', async (_event, logs: string) => {
     console.error('[Main] Failed to export logs:', error.message)
     return { success: false, error: error.message }
   }
+})
+
+// Dictionary CRUD operations
+ipcMain.handle('dictionary-get-all', () => {
+  return store.get('dictionary', [])
+})
+
+ipcMain.handle('dictionary-add', (_event, entry: { correctWord: string; incorrectVariants: string[] }) => {
+  const dictionary = store.get('dictionary', []) as any[]
+  const newEntry = {
+    id: Date.now().toString(),
+    correctWord: entry.correctWord,
+    incorrectVariants: entry.incorrectVariants
+  }
+  dictionary.push(newEntry)
+  store.set('dictionary', dictionary)
+  return { success: true, entry: newEntry }
+})
+
+ipcMain.handle('dictionary-update', (_event, id: string, entry: { correctWord: string; incorrectVariants: string[] }) => {
+  const dictionary = store.get('dictionary', []) as any[]
+  const index = dictionary.findIndex(e => e.id === id)
+  if (index !== -1) {
+    dictionary[index] = { ...dictionary[index], ...entry }
+    store.set('dictionary', dictionary)
+    return { success: true }
+  }
+  return { success: false, error: 'Entry not found' }
+})
+
+ipcMain.handle('dictionary-delete', (_event, id: string) => {
+  const dictionary = store.get('dictionary', []) as any[]
+  const filtered = dictionary.filter(e => e.id !== id)
+  store.set('dictionary', filtered)
+  return { success: true }
+})
+
+// Snippets CRUD operations
+ipcMain.handle('snippets-get-all', () => {
+  return store.get('snippets', [])
+})
+
+ipcMain.handle('snippets-add', (_event, entry: { trigger: string; expansion: string }) => {
+  const snippets = store.get('snippets', []) as any[]
+  const newEntry = {
+    id: Date.now().toString(),
+    trigger: entry.trigger,
+    expansion: entry.expansion
+  }
+  snippets.push(newEntry)
+  store.set('snippets', snippets)
+  return { success: true, entry: newEntry }
+})
+
+ipcMain.handle('snippets-update', (_event, id: string, entry: { trigger: string; expansion: string }) => {
+  const snippets = store.get('snippets', []) as any[]
+  const index = snippets.findIndex(e => e.id === id)
+  if (index !== -1) {
+    snippets[index] = { ...snippets[index], ...entry }
+    store.set('snippets', snippets)
+    return { success: true }
+  }
+  return { success: false, error: 'Entry not found' }
+})
+
+ipcMain.handle('snippets-delete', (_event, id: string) => {
+  const snippets = store.get('snippets', []) as any[]
+  const filtered = snippets.filter(e => e.id !== id)
+  store.set('snippets', filtered)
+  return { success: true }
 })
 
 /**
