@@ -66,6 +66,10 @@ function createWindow() {
   // Development mode - use Vite dev server
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
+    // Show window in dev mode after content loads
+    mainWindow.once('ready-to-show', () => {
+      mainWindow?.show()
+    })
     // Don't auto-open DevTools - prevents focus stealing during development
     // User can manually open via View > Toggle Developer Tools
   } else {

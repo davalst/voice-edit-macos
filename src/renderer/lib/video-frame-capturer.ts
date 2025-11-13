@@ -32,14 +32,11 @@ export class VideoFrameCapturer {
       }
     })
 
-    // Only start continuous capture if FPS > 0
-    if (this.fps > 0) {
-      // Capture frames at specified FPS
-      const intervalMs = 1000 / this.fps
-      this.intervalId = window.setInterval(() => {
-        this.captureFrame()
-      }, intervalMs)
-    }
+    // Capture frames at specified FPS
+    const intervalMs = 1000 / this.fps
+    this.intervalId = window.setInterval(() => {
+      this.captureFrame()
+    }, intervalMs)
   }
 
   private captureFrame() {
@@ -56,13 +53,6 @@ export class VideoFrameCapturer {
     const base64Jpeg = base64Data.split(',')[1]
 
     this.onFrame(base64Jpeg)
-  }
-
-  /**
-   * Capture a single frame on demand (for single-shot screen capture)
-   */
-  captureOnce() {
-    this.captureFrame()
   }
 
   stop() {

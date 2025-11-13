@@ -76,6 +76,12 @@ CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef 
       data[1] = ctrlKeyPressed;
       tsfn.NonBlockingCall(data, callback);
     }
+
+    // CRITICAL: Suppress Fn key to prevent macOS emoji picker
+    // Return NULL to block the event from reaching other apps
+    if (fnChanged) {
+      return NULL;
+    }
   }
 
   return event;

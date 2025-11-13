@@ -258,13 +258,6 @@ export function useVoiceEdit() {
       electronAPI?.log?.(`[Renderer] Silence detected - sending context + turnComplete`)
 
       try {
-        // CRITICAL: Capture single screenshot on silence detection (if screen sharing enabled)
-        if (videoFrameCapturer && isScreenSharing.value) {
-          console.log('[VoiceEdit] 📸 Capturing single screenshot on silence detection')
-          electronAPI?.log?.('[Renderer] 📸 Capturing single screenshot for Gemini')
-          videoFrameCapturer.captureOnce()
-        }
-
         // Build MINIMAL context message (exactly like Ebben POC)
         const contextMessage = `Focus text: "${selectedText.value}"`
 
@@ -346,8 +339,7 @@ export function useVoiceEdit() {
       const stream = await screenCapture.start(targetAppName)
       electronAPI?.log?.('[Renderer] ✅ Screen capture started, initializing video capturer')
 
-      // Initialize video frame capturer (FPS = 0 means no continuous capture)
-      // Single screenshot will be captured on silence detection instead
+      // Initialize video frame capturer
       videoFrameCapturer = new VideoFrameCapturer(base64Jpeg => {
         if (geminiAdapter && isScreenSharing.value) {
           geminiAdapter.sendRealtimeInput({
@@ -357,7 +349,7 @@ export function useVoiceEdit() {
             },
           })
         }
-      }, 0) // 0 FPS = no continuous capture, single-shot on demand only
+      }, 1) // 1 FPS
 
       await videoFrameCapturer.start(stream)
       isScreenSharing.value = true
