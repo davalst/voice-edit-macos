@@ -377,10 +377,6 @@ ipcMain.on('recording-stopped', () => {
 ipcMain.on('paste-text', (_event, text: string) => {
   console.log('[Main] Pasting text:', text.substring(0, 50) + '...')
 
-  // Show result in overlay briefly
-  const preview = text.length > 50 ? text.substring(0, 50) + '...' : text
-  overlayManager?.showResult(preview)
-
   // Copy to clipboard
   copyToClipboard(text)
 
@@ -388,6 +384,13 @@ ipcMain.on('paste-text', (_event, text: string) => {
   setTimeout(() => {
     // Simulate Cmd+V in active app
     simulatePaste()
+
+    // CRITICAL: Show result in overlay AFTER paste completes
+    // This prevents overlay from stealing focus during paste
+    setTimeout(() => {
+      const preview = text.length > 50 ? text.substring(0, 50) + '...' : text
+      overlayManager?.showResult(preview)
+    }, 100)
   }, 50)
 })
 
