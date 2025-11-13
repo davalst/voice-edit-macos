@@ -502,14 +502,33 @@ export function useVoiceEdit() {
   }
 
   /**
-   * Speak text using browser TTS (fallback)
+   * Speak text using browser TTS with premium macOS voice (Samantha Enhanced)
+   * Uses Apple's flagship voice for high-quality, natural-sounding speech
    */
   async function speakText(text: string) {
     if ('speechSynthesis' in window) {
       const utterance = new SpeechSynthesisUtterance(text)
-      utterance.rate = 1.0
-      utterance.pitch = 1.0
-      utterance.volume = 0.8
+
+      // Select premium macOS voice (Samantha Enhanced - Apple's flagship voice)
+      const voices = window.speechSynthesis.getVoices()
+      const premiumVoice = voices.find(
+        (v) =>
+          v.name === 'Samantha (Enhanced)' || // Best quality female voice
+          v.name === 'Samantha' || // Fallback to standard Samantha
+          v.name === 'Ava (Premium)' || // Alternative premium voice
+          v.name === 'Ava', // Fallback to standard Ava
+      )
+
+      if (premiumVoice) {
+        utterance.voice = premiumVoice
+        console.log('[VoiceEdit] 🔊 Using premium voice:', premiumVoice.name)
+      }
+
+      // Optimize for natural, clear speech
+      utterance.rate = 1.0 // Natural speed
+      utterance.pitch = 1.0 // Natural pitch
+      utterance.volume = 0.9 // Slightly louder for clarity
+
       window.speechSynthesis.speak(utterance)
       console.log('[VoiceEdit] 🔊 Speaking (browser TTS):', text)
     } else {
