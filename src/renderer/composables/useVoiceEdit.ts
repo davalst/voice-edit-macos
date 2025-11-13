@@ -37,8 +37,50 @@ export function useVoiceEdit() {
   let videoFrameCapturer: VideoFrameCapturer | null = null
   const screenCapture = useScreenCapture()
 
+  // Audio batching to reduce API rate limit usage
+  let audioBatchBuffer: string[] = []
+  let audioBatchTimer: NodeJS.Timeout | null = null
+  const AUDIO_BATCH_INTERVAL_MS = 500 // Batch audio chunks every 500ms to reduce API calls
+
   // Electron API
   const electronAPI = (window as any).electronAPI
+
+  /**
+   * Flush audio batch buffer - send accumulated audio chunks to Gemini
+   * This reduces API rate limit usage by batching multiple small chunks into larger sends
+   */
+  function flushAudioBatch() {
+    if (audioBatchBuffer.length === 0 || !geminiAdapter || !isRecording.value) {
+      return
+    }
+
+    // Concatenate all batched audio chunks
+    const combinedAudio = audioBatchBuffer.join('')
+
+    // Send combined audio to Gemini
+    geminiAdapter.sendRealtimeInput({
+      media: {
+        data: combinedAudio,
+        mimeType: 'audio/pcm;rate=16000',
+      },
+    })
+
+    // Clear buffer
+    audioBatchBuffer = []
+    audioBatchTimer = null
+  }
+
+  /**
+   * Stop audio batching and flush remaining data
+   */
+  function stopAudioBatching() {
+    if (audioBatchTimer) {
+      clearTimeout(audioBatchTimer)
+      audioBatchTimer = null
+    }
+    // Flush any remaining audio in buffer
+    flushAudioBatch()
+  }
 
   /**
    * Initialize Gemini connection
@@ -230,15 +272,19 @@ export function useVoiceEdit() {
     // Start audio recording
     audioRecorder = new AudioRecorder(16000)
 
-    // Stream audio to Gemini continuously
+    // Stream audio to Gemini with batching (reduce API rate limit usage)
+    // Instead of sending each chunk immediately (~600 req/min), batch them every 500ms (~120 req/min)
     audioRecorder.on('data', (base64Audio: string) => {
       if (geminiAdapter && isRecording.value) {
-        geminiAdapter.sendRealtimeInput({
-          media: {
-            data: base64Audio,
-            mimeType: 'audio/pcm;rate=16000',
-          },
-        })
+        // Add chunk to batch buffer
+        audioBatchBuffer.push(base64Audio)
+
+        // Start batch timer if not already running
+        if (!audioBatchTimer) {
+          audioBatchTimer = setTimeout(() => {
+            flushAudioBatch()
+          }, AUDIO_BATCH_INTERVAL_MS)
+        }
       }
     })
 
@@ -300,6 +346,9 @@ export function useVoiceEdit() {
       return
     }
 
+    // Flush any remaining batched audio before stopping
+    stopAudioBatching()
+
     if (audioRecorder) {
       audioRecorder.stop()
       audioRecorder = null
@@ -339,7 +388,7 @@ export function useVoiceEdit() {
       const stream = await screenCapture.start(targetAppName)
       electronAPI?.log?.('[Renderer] ✅ Screen capture started, initializing video capturer')
 
-      // Initialize video frame capturer
+      // Initialize video frame capturer (0.2 FPS = 1 frame every 5 seconds to reduce API rate limit usage)
       videoFrameCapturer = new VideoFrameCapturer(base64Jpeg => {
         if (geminiAdapter && isScreenSharing.value) {
           geminiAdapter.sendRealtimeInput({
@@ -349,7 +398,7 @@ export function useVoiceEdit() {
             },
           })
         }
-      }, 1) // 1 FPS
+      }, 0.2) // 0.2 FPS = 1 frame per 5 seconds (reduced from 1 FPS to minimize API rate limit usage)
 
       await videoFrameCapturer.start(stream)
       isScreenSharing.value = true
