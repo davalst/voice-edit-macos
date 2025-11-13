@@ -333,11 +333,11 @@ app.whenReady().then(async () => {
     mainWindow?.show()
   }
 
-  // DISABLED: Gesture detection system (user wants simple Fn toggle)
-  // initializeKeyMonitoring()
+  // Enable gesture detection system (supports Fn+Ctrl to avoid emoji picker)
+  initializeKeyMonitoring()
 
-  // Setup simple Fn key toggle (user's original request)
-  setupFnKeyToggle()
+  // DISABLED: Simple Fn toggle (triggers macOS emoji picker)
+  // setupFnKeyToggle()
 
   // Handle window activation on macOS
   app.on('activate', () => {
