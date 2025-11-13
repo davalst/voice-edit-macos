@@ -430,9 +430,23 @@ export function useVoiceEdit() {
         default:
           console.warn('[VoiceEdit] Unknown action:', jsonResponse.action)
       }
+
+      // CRITICAL: Auto-stop recording after response is processed
+      // This implements the "one-turn" workflow: Fn → Speak → Pause → Process → Auto-stop
+      if (isRecording.value) {
+        console.log('[VoiceEdit] ✅ Response processed - auto-stopping recording')
+        electronAPI?.log?.('[Renderer] Auto-stopping after response')
+        stopRecording()
+      }
     } catch (error: any) {
       console.error('[VoiceEdit] Failed to parse response:', error.message)
       console.log('[VoiceEdit] Raw output:', outputText)
+
+      // Auto-stop even on error to prevent stuck recording state
+      if (isRecording.value) {
+        console.log('[VoiceEdit] ⚠️ Error during processing - auto-stopping recording')
+        stopRecording()
+      }
     }
   }
 
