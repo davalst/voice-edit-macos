@@ -23,6 +23,13 @@ const overlayStore = new Store({
   },
 })
 
+// Store for app config (to check showOverlay setting)
+const configStore = new Store({
+  defaults: {
+    showOverlay: true,
+  },
+})
+
 export class OverlayManager {
   private overlayWindow: BrowserWindow | null = null
 
@@ -117,6 +124,13 @@ export class OverlayManager {
    * Show overlay with recording mode (doubled height for visibility)
    */
   show(mode: RecordingMode, enableScreenCapture: boolean) {
+    // Check if overlay should be shown based on user settings
+    const showOverlay = configStore.get('showOverlay', true) as boolean
+    if (!showOverlay) {
+      console.log('[OverlayManager] Overlay disabled by user settings, not showing')
+      return
+    }
+
     if (!this.overlayWindow) {
       this.create()
     }

@@ -394,6 +394,18 @@ app.whenReady().then(async () => {
     mainWindow?.show()
   }
 
+  // Apply Dock visibility setting from config (macOS only)
+  if (process.platform === 'darwin') {
+    const showInDock = store.get('showInDock', false) as boolean
+    if (showInDock) {
+      app.dock.show()
+      console.log('[Main] Dock icon shown (from config)')
+    } else {
+      app.dock.hide()
+      console.log('[Main] Dock icon hidden (from config)')
+    }
+  }
+
   // Enable gesture detection system (supports Fn+Ctrl to avoid emoji picker)
   initializeKeyMonitoring()
 
@@ -424,6 +436,30 @@ ipcMain.handle('save-config', (_event, config) => {
   Object.entries(config).forEach(([key, value]) => {
     store.set(key, value)
   })
+
+  // Apply Dock visibility setting immediately (macOS only)
+  if (process.platform === 'darwin' && 'showInDock' in config) {
+    if (config.showInDock) {
+      app.dock.show()
+      console.log('[Main] Dock icon shown')
+    } else {
+      app.dock.hide()
+      console.log('[Main] Dock icon hidden')
+    }
+  }
+
+  // Apply overlay visibility setting immediately
+  if ('showOverlay' in config) {
+    if (overlayManager) {
+      if (config.showOverlay) {
+        console.log('[Main] Overlay enabled')
+      } else {
+        console.log('[Main] Overlay disabled')
+        overlayManager.hide() // Hide overlay if it's currently showing
+      }
+    }
+  }
+
   return { success: true }
 })
 
