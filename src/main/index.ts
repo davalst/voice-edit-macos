@@ -328,11 +328,11 @@ app.whenReady().then(async () => {
     mainWindow?.show()
   }
 
-  // Initialize Wispr Flow-style native key monitoring (Fn + Fn+Ctrl gestures)
-  initializeKeyMonitoring()
+  // DISABLED: Gesture detection system (user wants simple Fn toggle)
+  // initializeKeyMonitoring()
 
-  // DISABLED: Old Fn toggle conflicts with gesture detection system
-  // setupFnKeyToggle()
+  // Setup simple Fn key toggle (user's original request)
+  setupFnKeyToggle()
 
   // Handle window activation on macOS
   app.on('activate', () => {
