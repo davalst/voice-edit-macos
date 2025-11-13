@@ -219,6 +219,12 @@ function initializeKeyMonitoring() {
   // Create overlay window (hidden initially)
   overlayManager.create()
 
+  // Show overlay in idle state if enabled by user settings
+  const showOverlay = store.get('showOverlay', true) as boolean
+  if (showOverlay) {
+    overlayManager.showIdle()
+  }
+
   // Wire up gesture detector to state machine
   gestureDetector.on('fnDoubleTap', (timestamp) => {
     stateMachine?.onFnDoubleTap(timestamp)
@@ -453,6 +459,7 @@ ipcMain.handle('save-config', (_event, config) => {
     if (overlayManager) {
       if (config.showOverlay) {
         console.log('[Main] Overlay enabled')
+        overlayManager.showIdle() // Show overlay in idle state
       } else {
         console.log('[Main] Overlay disabled')
         overlayManager.hide() // Hide overlay if it's currently showing

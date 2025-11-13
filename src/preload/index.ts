@@ -111,6 +111,9 @@ const api = {
   onOverlayHide: (callback: () => void) => {
     ipcRenderer.on('overlay-hide', callback)
   },
+  onOverlayIdle: (callback: () => void) => {
+    ipcRenderer.on('overlay-idle', callback)
+  },
   onOverlayWaveform: (callback: (data: number[]) => void) => {
     ipcRenderer.on('overlay-waveform', (_event, data) => callback(data))
   },

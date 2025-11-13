@@ -147,6 +147,29 @@ export class OverlayManager {
   }
 
   /**
+   * Show overlay in idle/ready state (for persistent display)
+   */
+  showIdle() {
+    // Check if overlay should be shown based on user settings
+    const showOverlay = configStore.get('showOverlay', true) as boolean
+    if (!showOverlay) {
+      console.log('[OverlayManager] Overlay disabled by user settings, not showing')
+      return
+    }
+
+    if (!this.overlayWindow) {
+      this.create()
+    }
+
+    // Send idle state to overlay UI
+    this.overlayWindow?.webContents.send('overlay-idle')
+
+    // Use showInactive() to prevent stealing focus from active app
+    this.overlayWindow?.showInactive()
+    console.log('[OverlayManager] Overlay shown in idle state')
+  }
+
+  /**
    * Hide overlay
    */
   hide() {

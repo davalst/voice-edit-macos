@@ -302,8 +302,8 @@
 
           <div class="setting-row">
             <div class="setting-info">
-              <div class="setting-label">Show Flow bar at all times</div>
-              <div class="setting-hint">Display overlay indicator on screen</div>
+              <div class="setting-label">Status Overlay</div>
+              <div class="setting-hint">Display status indicator on screen</div>
             </div>
             <label class="toggle">
               <input type="checkbox" v-model="showOverlay" @change="saveSettings" />

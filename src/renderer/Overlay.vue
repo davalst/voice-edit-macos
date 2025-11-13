@@ -140,6 +140,23 @@ function handleOverlayHide() {
 }
 
 /**
+ * Handle overlay idle event (for persistent display)
+ */
+function handleOverlayIdle() {
+  console.log('[Overlay] Idle')
+  state.value = 'idle'
+  waveformData.value = []
+  currentMode.value = ''
+  enableScreenCapture.value = false
+
+  // Clear any pending result timer
+  if (resultTimer) {
+    clearTimeout(resultTimer)
+    resultTimer = null
+  }
+}
+
+/**
  * Handle result display (shows command or edited text briefly)
  */
 function handleResultDisplay(result: string) {
@@ -180,6 +197,7 @@ onMounted(() => {
   // Listen for overlay events
   electronAPI?.onOverlayShow?.(handleOverlayShow)
   electronAPI?.onOverlayHide?.(handleOverlayHide)
+  electronAPI?.onOverlayIdle?.(handleOverlayIdle)
   electronAPI?.onOverlayWaveform?.(handleWaveformUpdate)
   electronAPI?.onOverlayResult?.(handleResultDisplay)
 })
