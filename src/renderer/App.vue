@@ -76,80 +76,113 @@
       <div v-else-if="currentView === 'dictionary'" class="view">
         <header class="view-header">
           <h1>Dictionary</h1>
+          <button class="primary-button" @click="openDictionaryDialog">
+            + Add Word
+          </button>
         </header>
 
-        <div class="dictionary-container">
-          <!-- Add Form - always visible at top -->
-          <div class="dictionary-add-form">
-            <div class="form-row">
+        <!-- Onboarding Banner -->
+        <div v-if="!dictionaryOnboardingDismissed && dictionaryEntries.length === 0" class="onboarding-banner">
+          <div class="banner-content">
+            <div class="banner-icon">📖</div>
+            <div class="banner-text">
+              <div class="banner-title">Add words to your vocabulary</div>
+              <div class="banner-description">
+                Teach Voice Edit how to properly transcribe names, technical terms, or brand-specific words.
+              </div>
+              <div class="banner-examples">
+                <span class="example-pill">Ebben → Ebon, Evan</span>
+                <span class="example-pill">Anthropic → Anthropix</span>
+                <span class="example-pill">Kubernetes → Coobernetes</span>
+              </div>
+            </div>
+            <button class="banner-dismiss" @click="dictionaryOnboardingDismissed = true">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Empty state -->
+        <div v-if="dictionaryEntries.length === 0" class="empty-state-card">
+          <div class="empty-icon">📖</div>
+          <div class="empty-title">No custom words yet</div>
+          <div class="empty-description">Add your first word to improve transcription accuracy</div>
+          <button class="primary-button" @click="openDictionaryDialog">
+            + Add Word
+          </button>
+        </div>
+
+        <!-- Dictionary entries list -->
+        <div v-else class="entries-grid">
+          <div v-for="entry in dictionaryEntries" :key="entry.id" class="entry-card">
+            <div class="entry-card-content">
+              <div class="entry-word">{{ entry.correctWord }}</div>
+              <div class="entry-variants">{{ entry.incorrectVariants.join(', ') }}</div>
+            </div>
+            <div class="entry-actions">
+              <button class="icon-button" @click="editDictionaryEntry(entry)" title="Edit">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 000-.354l-1.086-1.086zM11.189 6.25L9.75 4.81l-6.286 6.287a.25.25 0 00-.064.108l-.558 1.953 1.953-.558a.25.25 0 00.108-.064l6.286-6.286z"/>
+                </svg>
+              </button>
+              <button class="icon-button delete" @click="deleteDictionaryEntry(entry.id)" title="Delete">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M11 1.75V3h2.25a.75.75 0 010 1.5H2.75a.75.75 0 010-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75zM4.496 6.675a.75.75 0 10-1.492.15l.66 6.6A1.75 1.75 0 005.405 15h5.19c.9 0 1.652-.681 1.741-1.576l.66-6.6a.75.75 0 00-1.492-.149l-.66 6.6a.25.25 0 01-.249.225h-5.19a.25.25 0 01-.249-.225l-.66-6.6zM6.5 1.75V3h3V1.75a.25.25 0 00-.25-.25h-2.5a.25.25 0 00-.25.25z"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dictionary Modal Dialog -->
+        <div v-if="showDictionaryDialog" class="modal-backdrop" @click="closeDictionaryDialog">
+          <div class="modal-dialog" @click.stop>
+            <div class="modal-header">
+              <h2>{{ dictionaryEditMode ? 'Edit Word' : 'Add to Dictionary' }}</h2>
+              <button class="modal-close" @click="closeDictionaryDialog">
+                <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
+                </svg>
+              </button>
+            </div>
+            <div class="modal-body">
               <div class="form-field">
                 <label>Correct Word</label>
                 <input
                   v-model="dictionaryForm.correctWord"
                   type="text"
                   placeholder="e.g., Ebben"
-                  class="text-input"
+                  class="modal-input"
                   @keydown.enter="saveDictionaryEntry"
+                  autofocus
                 />
+                <div class="field-hint">The correct spelling of the word</div>
               </div>
-              <div class="form-field flex-grow">
+              <div class="form-field">
                 <label>Incorrect Variants (comma-separated)</label>
                 <input
                   v-model="dictionaryVariantsInput"
                   type="text"
                   placeholder="e.g., Ebon, Evan, Eben"
-                  class="text-input"
+                  class="modal-input"
                   @keydown.enter="saveDictionaryEntry"
                 />
-              </div>
-              <div class="form-actions">
-                <button
-                  v-if="dictionaryEditMode"
-                  class="secondary-button-small"
-                  @click="cancelDictionaryEdit"
-                >
-                  Cancel
-                </button>
-                <button
-                  class="primary-button-small"
-                  @click="saveDictionaryEntry"
-                  :disabled="!dictionaryForm.correctWord.trim() || !dictionaryVariantsInput.trim()"
-                >
-                  {{ dictionaryEditMode ? 'Update' : 'Add' }}
-                </button>
+                <div class="field-hint">Common misspellings or variations that Voice Edit might transcribe</div>
               </div>
             </div>
-          </div>
-
-          <!-- Empty state -->
-          <div v-if="dictionaryEntries.length === 0" class="empty-state-inline">
-            <div class="empty-icon">📖</div>
-            <div class="empty-text">No custom words yet. Add your first entry above.</div>
-          </div>
-
-          <!-- Dictionary entries list -->
-          <div v-else class="entries-list">
-            <div
-              v-for="entry in dictionaryEntries"
-              :key="entry.id"
-              :class="['entry-item', { editing: dictionaryEditMode && dictionaryEditId === entry.id }]"
-            >
-              <div class="entry-content">
-                <div class="entry-word">{{ entry.correctWord }}</div>
-                <div class="entry-variants">{{ entry.incorrectVariants.join(', ') }}</div>
-              </div>
-              <div class="entry-actions">
-                <button class="icon-button" @click="editDictionaryEntry(entry)" title="Edit">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 000-.354l-1.086-1.086zM11.189 6.25L9.75 4.81l-6.286 6.287a.25.25 0 00-.064.108l-.558 1.953 1.953-.558a.25.25 0 00.108-.064l6.286-6.286z"/>
-                  </svg>
-                </button>
-                <button class="icon-button delete" @click="deleteDictionaryEntry(entry.id)" title="Delete">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M11 1.75V3h2.25a.75.75 0 010 1.5H2.75a.75.75 0 010-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75zM4.496 6.675a.75.75 0 10-1.492.15l.66 6.6A1.75 1.75 0 005.405 15h5.19c.9 0 1.652-.681 1.741-1.576l.66-6.6a.75.75 0 00-1.492-.149l-.66 6.6a.25.25 0 01-.249.225h-5.19a.25.25 0 01-.249-.225l-.66-6.6zM6.5 1.75V3h3V1.75a.25.25 0 00-.25-.25h-2.5a.25.25 0 00-.25.25z"/>
-                  </svg>
-                </button>
-              </div>
+            <div class="modal-footer">
+              <button class="secondary-button" @click="closeDictionaryDialog">
+                Cancel
+              </button>
+              <button
+                class="primary-button"
+                @click="saveDictionaryEntry"
+                :disabled="!dictionaryForm.correctWord.trim() || !dictionaryVariantsInput.trim()"
+              >
+                {{ dictionaryEditMode ? 'Save Changes' : 'Add Word' }}
+              </button>
             </div>
           </div>
         </div>
@@ -159,80 +192,112 @@
       <div v-else-if="currentView === 'snippets'" class="view">
         <header class="view-header">
           <h1>Snippets</h1>
+          <button class="primary-button" @click="openSnippetDialog">
+            + Add Snippet
+          </button>
         </header>
 
-        <div class="dictionary-container">
-          <!-- Add Form - always visible at top -->
-          <div class="dictionary-add-form">
-            <div class="form-row">
+        <!-- Onboarding Banner -->
+        <div v-if="!snippetOnboardingDismissed && snippetEntries.length === 0" class="onboarding-banner">
+          <div class="banner-content">
+            <div class="banner-icon">✂️</div>
+            <div class="banner-text">
+              <div class="banner-title">Create voice shortcuts</div>
+              <div class="banner-description">
+                Use natural phrases to quickly insert frequently-used text like emails, addresses, or boilerplate.
+              </div>
+              <div class="banner-examples">
+                <span class="example-pill">personal email → you@gmail.com</span>
+                <span class="example-pill">work address → 123 Main St</span>
+                <span class="example-pill">signature → Best regards, John</span>
+              </div>
+            </div>
+            <button class="banner-dismiss" @click="snippetOnboardingDismissed = true">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Empty state -->
+        <div v-if="snippetEntries.length === 0" class="empty-state-card">
+          <div class="empty-icon">✂️</div>
+          <div class="empty-title">No snippets yet</div>
+          <div class="empty-description">Create your first voice shortcut to save time</div>
+          <button class="primary-button" @click="openSnippetDialog">
+            + Add Snippet
+          </button>
+        </div>
+
+        <!-- Snippets entries list -->
+        <div v-else class="entries-grid">
+          <div v-for="entry in snippetEntries" :key="entry.id" class="entry-card">
+            <div class="entry-card-content">
+              <div class="entry-word">{{ entry.trigger }}</div>
+              <div class="entry-variants">{{ entry.expansion }}</div>
+            </div>
+            <div class="entry-actions">
+              <button class="icon-button" @click="editSnippetEntry(entry)" title="Edit">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 000-.354l-1.086-1.086zM11.189 6.25L9.75 4.81l-6.286 6.287a.25.25 0 00-.064.108l-.558 1.953 1.953-.558a.25.25 0 00.108-.064l6.286-6.286z"/>
+                </svg>
+              </button>
+              <button class="icon-button delete" @click="deleteSnippetEntry(entry.id)" title="Delete">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M11 1.75V3h2.25a.75.75 0 010 1.5H2.75a.75.75 0 010-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75zM4.496 6.675a.75.75 0 10-1.492.15l.66 6.6A1.75 1.75 0 005.405 15h5.19c.9 0 1.652-.681 1.741-1.576l.66-6.6a.75.75 0 00-1.492-.149l-.66 6.6a.25.25 0 01-.249.225h-5.19a.25.25 0 01-.249-.225l-.66-6.6zM6.5 1.75V3h3V1.75a.25.25 0 00-.25-.25h-2.5a.25.25 0 00-.25.25z"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Snippet Modal Dialog -->
+        <div v-if="showSnippetDialog" class="modal-backdrop" @click="closeSnippetDialog">
+          <div class="modal-dialog" @click.stop>
+            <div class="modal-header">
+              <h2>{{ snippetEditMode ? 'Edit Snippet' : 'Add Snippet' }}</h2>
+              <button class="modal-close" @click="closeSnippetDialog">
+                <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
+                </svg>
+              </button>
+            </div>
+            <div class="modal-body">
               <div class="form-field">
                 <label>Trigger Phrase</label>
                 <input
                   v-model="snippetForm.trigger"
                   type="text"
                   placeholder="e.g., personal email"
-                  class="text-input"
+                  class="modal-input"
                   @keydown.enter="saveSnippetEntry"
+                  autofocus
                 />
+                <div class="field-hint">The phrase you'll say to trigger this snippet</div>
               </div>
-              <div class="form-field flex-grow">
+              <div class="form-field">
                 <label>Expansion Text</label>
-                <input
+                <textarea
                   v-model="snippetForm.expansion"
-                  type="text"
                   placeholder="e.g., user@example.com"
-                  class="text-input"
-                  @keydown.enter="saveSnippetEntry"
+                  class="modal-textarea"
+                  rows="3"
                 />
-              </div>
-              <div class="form-actions">
-                <button
-                  v-if="snippetEditMode"
-                  class="secondary-button-small"
-                  @click="cancelSnippetEdit"
-                >
-                  Cancel
-                </button>
-                <button
-                  class="primary-button-small"
-                  @click="saveSnippetEntry"
-                  :disabled="!snippetForm.trigger.trim() || !snippetForm.expansion.trim()"
-                >
-                  {{ snippetEditMode ? 'Update' : 'Add' }}
-                </button>
+                <div class="field-hint">The text that will be inserted when you say the trigger phrase</div>
               </div>
             </div>
-          </div>
-
-          <!-- Empty state -->
-          <div v-if="snippetEntries.length === 0" class="empty-state-inline">
-            <div class="empty-icon">✂️</div>
-            <div class="empty-text">No snippets yet. Add your first entry above.</div>
-          </div>
-
-          <!-- Snippets entries list -->
-          <div v-else class="entries-list">
-            <div
-              v-for="entry in snippetEntries"
-              :key="entry.id"
-              :class="['entry-item', { editing: snippetEditMode && snippetEditId === entry.id }]"
-            >
-              <div class="entry-content">
-                <div class="entry-word">{{ entry.trigger }}</div>
-                <div class="entry-variants">{{ entry.expansion }}</div>
-              </div>
-              <div class="entry-actions">
-                <button class="icon-button" @click="editSnippetEntry(entry)" title="Edit">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 000-.354l-1.086-1.086zM11.189 6.25L9.75 4.81l-6.286 6.287a.25.25 0 00-.064.108l-.558 1.953 1.953-.558a.25.25 0 00.108-.064l6.286-6.286z"/>
-                  </svg>
-                </button>
-                <button class="icon-button delete" @click="deleteSnippetEntry(entry.id)" title="Delete">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M11 1.75V3h2.25a.75.75 0 010 1.5H2.75a.75.75 0 010-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75zM4.496 6.675a.75.75 0 10-1.492.15l.66 6.6A1.75 1.75 0 005.405 15h5.19c.9 0 1.652-.681 1.741-1.576l.66-6.6a.75.75 0 00-1.492-.149l-.66 6.6a.25.25 0 01-.249.225h-5.19a.25.25 0 01-.249-.225l-.66-6.6zM6.5 1.75V3h3V1.75a.25.25 0 00-.25-.25h-2.5a.25.25 0 00-.25.25z"/>
-                  </svg>
-                </button>
-              </div>
+            <div class="modal-footer">
+              <button class="secondary-button" @click="closeSnippetDialog">
+                Cancel
+              </button>
+              <button
+                class="primary-button"
+                @click="saveSnippetEntry"
+                :disabled="!snippetForm.trigger.trim() || !snippetForm.expansion.trim()"
+              >
+                {{ snippetEditMode ? 'Save Changes' : 'Add Snippet' }}
+              </button>
             </div>
           </div>
         </div>
@@ -434,6 +499,7 @@ const dictionaryEditMode = ref(false)
 const dictionaryEditId = ref<string | null>(null)
 const dictionaryForm = ref({ correctWord: '', incorrectVariants: [] as string[] })
 const dictionaryVariantsInput = ref('')
+const dictionaryOnboardingDismissed = ref(false)
 
 // Snippets state
 interface SnippetEntry {
@@ -446,6 +512,7 @@ const showSnippetDialog = ref(false)
 const snippetEditMode = ref(false)
 const snippetEditId = ref<string | null>(null)
 const snippetForm = ref({ trigger: '', expansion: '' })
+const snippetOnboardingDismissed = ref(false)
 
 // Voice edit state
 const {
@@ -595,14 +662,25 @@ async function loadDictionaryEntries() {
 }
 
 /**
- * Show add dictionary dialog
+ * Open dictionary dialog (for adding new word)
  */
-function showAddDictionaryDialog() {
+function openDictionaryDialog() {
   dictionaryEditMode.value = false
   dictionaryEditId.value = null
   dictionaryForm.value = { correctWord: '', incorrectVariants: [] }
   dictionaryVariantsInput.value = ''
   showDictionaryDialog.value = true
+}
+
+/**
+ * Close dictionary dialog
+ */
+function closeDictionaryDialog() {
+  showDictionaryDialog.value = false
+  dictionaryEditMode.value = false
+  dictionaryEditId.value = null
+  dictionaryForm.value = { correctWord: '', incorrectVariants: [] }
+  dictionaryVariantsInput.value = ''
 }
 
 /**
@@ -613,16 +691,7 @@ function editDictionaryEntry(entry: DictionaryEntry) {
   dictionaryEditId.value = entry.id
   dictionaryForm.value = { correctWord: entry.correctWord, incorrectVariants: [...entry.incorrectVariants] }
   dictionaryVariantsInput.value = entry.incorrectVariants.join(', ')
-}
-
-/**
- * Cancel dictionary edit
- */
-function cancelDictionaryEdit() {
-  dictionaryEditMode.value = false
-  dictionaryEditId.value = null
-  dictionaryForm.value = { correctWord: '', incorrectVariants: [] }
-  dictionaryVariantsInput.value = ''
+  showDictionaryDialog.value = true
 }
 
 /**
@@ -654,7 +723,7 @@ async function saveDictionaryEntry() {
   }
 
   await loadDictionaryEntries()
-  cancelDictionaryEdit()
+  closeDictionaryDialog()
 }
 
 /**
@@ -681,13 +750,23 @@ async function loadSnippetEntries() {
 }
 
 /**
- * Show add snippet dialog
+ * Open snippet dialog (for adding new snippet)
  */
-function showAddSnippetDialog() {
+function openSnippetDialog() {
   snippetEditMode.value = false
   snippetEditId.value = null
   snippetForm.value = { trigger: '', expansion: '' }
   showSnippetDialog.value = true
+}
+
+/**
+ * Close snippet dialog
+ */
+function closeSnippetDialog() {
+  showSnippetDialog.value = false
+  snippetEditMode.value = false
+  snippetEditId.value = null
+  snippetForm.value = { trigger: '', expansion: '' }
 }
 
 /**
@@ -697,15 +776,7 @@ function editSnippetEntry(entry: SnippetEntry) {
   snippetEditMode.value = true
   snippetEditId.value = entry.id
   snippetForm.value = { trigger: entry.trigger, expansion: entry.expansion }
-}
-
-/**
- * Cancel snippet edit
- */
-function cancelSnippetEdit() {
-  snippetEditMode.value = false
-  snippetEditId.value = null
-  snippetForm.value = { trigger: '', expansion: '' }
+  showSnippetDialog.value = true
 }
 
 /**
@@ -731,7 +802,7 @@ async function saveSnippetEntry() {
   }
 
   await loadSnippetEntries()
-  cancelSnippetEdit()
+  closeSnippetDialog()
 }
 
 /**
@@ -1302,5 +1373,335 @@ onMounted(async () => {
   text-align: center;
   padding: 40px 20px;
   font-size: 13px;
+}
+
+/* Flow-style Dictionary/Snippets UI */
+
+/* Onboarding Banner */
+.onboarding-banner {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  border: 1px solid #fde68a;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.banner-content {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.banner-icon {
+  font-size: 32px;
+  flex-shrink: 0;
+}
+
+.banner-text {
+  flex: 1;
+}
+
+.banner-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #78350f;
+  margin-bottom: 6px;
+}
+
+.banner-description {
+  font-size: 14px;
+  color: #92400e;
+  margin-bottom: 12px;
+}
+
+.banner-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.example-pill {
+  display: inline-block;
+  padding: 6px 12px;
+  background: rgba(251, 191, 36, 0.2);
+  border: 1px solid #fbbf24;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #78350f;
+  font-weight: 500;
+}
+
+.banner-dismiss {
+  background: none;
+  border: none;
+  color: #92400e;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.banner-dismiss:hover {
+  background: rgba(146, 64, 14, 0.1);
+}
+
+/* Empty State Card */
+.empty-state-card {
+  background: white;
+  border: 2px dashed #e5e7eb;
+  border-radius: 12px;
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.empty-state-card .empty-icon {
+  font-size: 56px;
+  margin-bottom: 16px;
+}
+
+.empty-state-card .empty-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 8px;
+}
+
+.empty-state-card .empty-description {
+  font-size: 14px;
+  color: #6b7280;
+  margin-bottom: 20px;
+}
+
+/* Entries Grid */
+.entries-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.entry-card {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px;
+  transition: all 0.2s;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.entry-card:hover {
+  border-color: #d1d5db;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.entry-card-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.entry-word {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+
+.entry-variants {
+  font-size: 13px;
+  color: #6b7280;
+  word-break: break-word;
+}
+
+.entry-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.icon-button {
+  background: none;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-button:hover {
+  background: #f3f4f6;
+  color: #1f2937;
+}
+
+.icon-button.delete:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+/* Modal Dialog */
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal-dialog {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  width: 90%;
+  max-width: 500px;
+  animation: slideUp 0.2s;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 24px 16px 24px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.modal-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-close:hover {
+  background: #f3f4f6;
+  color: #1f2937;
+}
+
+.modal-body {
+  padding: 24px;
+}
+
+.form-field {
+  margin-bottom: 20px;
+}
+
+.form-field:last-child {
+  margin-bottom: 0;
+}
+
+.form-field label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 8px;
+}
+
+.modal-input,
+.modal-textarea {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+
+.modal-input:focus,
+.modal-textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.modal-textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.field-hint {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 6px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px 24px 24px;
+  border-top: 1px solid #f3f4f6;
+}
+
+.secondary-button {
+  padding: 10px 20px;
+  background: white;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.secondary-button:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+.primary-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.primary-button:disabled:hover {
+  background: #1f2937;
 }
 </style>
