@@ -76,62 +76,80 @@
       <div v-else-if="currentView === 'dictionary'" class="view">
         <header class="view-header">
           <h1>Dictionary</h1>
-          <button class="primary-button" @click="showAddDictionaryDialog">Add new</button>
         </header>
 
-        <!-- Empty state -->
-        <div v-if="dictionaryEntries.length === 0" class="empty-state">
-          <div class="empty-icon">📖</div>
-          <div class="empty-title">No custom words yet</div>
-          <div class="empty-description">Add words and names for better recognition</div>
-        </div>
-
-        <!-- Dictionary entries list -->
-        <div v-else class="entries-list">
-          <div
-            v-for="entry in dictionaryEntries"
-            :key="entry.id"
-            class="entry-item"
-          >
-            <div class="entry-content">
-              <div class="entry-word">{{ entry.correctWord }}</div>
-              <div class="entry-variants">{{ entry.incorrectVariants.join(', ') }}</div>
-            </div>
-            <div class="entry-actions">
-              <button class="icon-button" @click="editDictionaryEntry(entry)">✏️</button>
-              <button class="icon-button delete" @click="deleteDictionaryEntry(entry.id)">✕</button>
+        <div class="dictionary-container">
+          <!-- Add Form - always visible at top -->
+          <div class="dictionary-add-form">
+            <div class="form-row">
+              <div class="form-field">
+                <label>Correct Word</label>
+                <input
+                  v-model="dictionaryForm.correctWord"
+                  type="text"
+                  placeholder="e.g., Ebben"
+                  class="text-input"
+                  @keydown.enter="saveDictionaryEntry"
+                />
+              </div>
+              <div class="form-field flex-grow">
+                <label>Incorrect Variants (comma-separated)</label>
+                <input
+                  v-model="dictionaryVariantsInput"
+                  type="text"
+                  placeholder="e.g., Ebon, Evan, Eben"
+                  class="text-input"
+                  @keydown.enter="saveDictionaryEntry"
+                />
+              </div>
+              <div class="form-actions">
+                <button
+                  v-if="dictionaryEditMode"
+                  class="secondary-button-small"
+                  @click="cancelDictionaryEdit"
+                >
+                  Cancel
+                </button>
+                <button
+                  class="primary-button-small"
+                  @click="saveDictionaryEntry"
+                  :disabled="!dictionaryForm.correctWord.trim() || !dictionaryVariantsInput.trim()"
+                >
+                  {{ dictionaryEditMode ? 'Update' : 'Add' }}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- Add/Edit Dialog -->
-        <div v-if="showDictionaryDialog" class="dialog-overlay" @click="closeDictionaryDialog">
-          <div class="dialog" @click.stop>
-            <h2>{{ dictionaryEditMode ? 'Edit' : 'Add' }} Dictionary Entry</h2>
+          <!-- Empty state -->
+          <div v-if="dictionaryEntries.length === 0" class="empty-state-inline">
+            <div class="empty-icon">📖</div>
+            <div class="empty-text">No custom words yet. Add your first entry above.</div>
+          </div>
 
-            <div class="form-group">
-              <label>Correct Word</label>
-              <input
-                v-model="dictionaryForm.correctWord"
-                type="text"
-                placeholder="e.g., Ebben"
-                class="text-input"
-              />
-            </div>
-
-            <div class="form-group">
-              <label>Incorrect Variants (comma-separated)</label>
-              <input
-                v-model="dictionaryVariantsInput"
-                type="text"
-                placeholder="e.g., Ebon, Evan, Eben"
-                class="text-input"
-              />
-            </div>
-
-            <div class="dialog-actions">
-              <button class="secondary-button" @click="closeDictionaryDialog">Cancel</button>
-              <button class="primary-button" @click="saveDictionaryEntry">Save</button>
+          <!-- Dictionary entries list -->
+          <div v-else class="entries-list">
+            <div
+              v-for="entry in dictionaryEntries"
+              :key="entry.id"
+              :class="['entry-item', { editing: dictionaryEditMode && dictionaryEditId === entry.id }]"
+            >
+              <div class="entry-content">
+                <div class="entry-word">{{ entry.correctWord }}</div>
+                <div class="entry-variants">{{ entry.incorrectVariants.join(', ') }}</div>
+              </div>
+              <div class="entry-actions">
+                <button class="icon-button" @click="editDictionaryEntry(entry)" title="Edit">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 000-.354l-1.086-1.086zM11.189 6.25L9.75 4.81l-6.286 6.287a.25.25 0 00-.064.108l-.558 1.953 1.953-.558a.25.25 0 00.108-.064l6.286-6.286z"/>
+                  </svg>
+                </button>
+                <button class="icon-button delete" @click="deleteDictionaryEntry(entry.id)" title="Delete">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M11 1.75V3h2.25a.75.75 0 010 1.5H2.75a.75.75 0 010-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75zM4.496 6.675a.75.75 0 10-1.492.15l.66 6.6A1.75 1.75 0 005.405 15h5.19c.9 0 1.652-.681 1.741-1.576l.66-6.6a.75.75 0 00-1.492-.149l-.66 6.6a.25.25 0 01-.249.225h-5.19a.25.25 0 01-.249-.225l-.66-6.6zM6.5 1.75V3h3V1.75a.25.25 0 00-.25-.25h-2.5a.25.25 0 00-.25.25z"/>
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -141,62 +159,80 @@
       <div v-else-if="currentView === 'snippets'" class="view">
         <header class="view-header">
           <h1>Snippets</h1>
-          <button class="primary-button" @click="showAddSnippetDialog">Add new</button>
         </header>
 
-        <!-- Empty state -->
-        <div v-if="snippetEntries.length === 0" class="empty-state">
-          <div class="empty-icon">✂️</div>
-          <div class="empty-title">No snippets yet</div>
-          <div class="empty-description">Save shortcuts to expand text instantly</div>
-        </div>
-
-        <!-- Snippets entries list -->
-        <div v-else class="entries-list">
-          <div
-            v-for="entry in snippetEntries"
-            :key="entry.id"
-            class="entry-item"
-          >
-            <div class="entry-content">
-              <div class="entry-word">{{ entry.trigger }}</div>
-              <div class="entry-variants">{{ entry.expansion }}</div>
-            </div>
-            <div class="entry-actions">
-              <button class="icon-button" @click="editSnippetEntry(entry)">✏️</button>
-              <button class="icon-button delete" @click="deleteSnippetEntry(entry.id)">✕</button>
+        <div class="dictionary-container">
+          <!-- Add Form - always visible at top -->
+          <div class="dictionary-add-form">
+            <div class="form-row">
+              <div class="form-field">
+                <label>Trigger Phrase</label>
+                <input
+                  v-model="snippetForm.trigger"
+                  type="text"
+                  placeholder="e.g., personal email"
+                  class="text-input"
+                  @keydown.enter="saveSnippetEntry"
+                />
+              </div>
+              <div class="form-field flex-grow">
+                <label>Expansion Text</label>
+                <input
+                  v-model="snippetForm.expansion"
+                  type="text"
+                  placeholder="e.g., user@example.com"
+                  class="text-input"
+                  @keydown.enter="saveSnippetEntry"
+                />
+              </div>
+              <div class="form-actions">
+                <button
+                  v-if="snippetEditMode"
+                  class="secondary-button-small"
+                  @click="cancelSnippetEdit"
+                >
+                  Cancel
+                </button>
+                <button
+                  class="primary-button-small"
+                  @click="saveSnippetEntry"
+                  :disabled="!snippetForm.trigger.trim() || !snippetForm.expansion.trim()"
+                >
+                  {{ snippetEditMode ? 'Update' : 'Add' }}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- Add/Edit Dialog -->
-        <div v-if="showSnippetDialog" class="dialog-overlay" @click="closeSnippetDialog">
-          <div class="dialog" @click.stop>
-            <h2>{{ snippetEditMode ? 'Edit' : 'Add' }} Snippet</h2>
+          <!-- Empty state -->
+          <div v-if="snippetEntries.length === 0" class="empty-state-inline">
+            <div class="empty-icon">✂️</div>
+            <div class="empty-text">No snippets yet. Add your first entry above.</div>
+          </div>
 
-            <div class="form-group">
-              <label>Trigger Phrase</label>
-              <input
-                v-model="snippetForm.trigger"
-                type="text"
-                placeholder="e.g., personal email"
-                class="text-input"
-              />
-            </div>
-
-            <div class="form-group">
-              <label>Expansion Text</label>
-              <textarea
-                v-model="snippetForm.expansion"
-                placeholder="e.g., user@example.com"
-                class="text-input"
-                rows="4"
-              ></textarea>
-            </div>
-
-            <div class="dialog-actions">
-              <button class="secondary-button" @click="closeSnippetDialog">Cancel</button>
-              <button class="primary-button" @click="saveSnippetEntry">Save</button>
+          <!-- Snippets entries list -->
+          <div v-else class="entries-list">
+            <div
+              v-for="entry in snippetEntries"
+              :key="entry.id"
+              :class="['entry-item', { editing: snippetEditMode && snippetEditId === entry.id }]"
+            >
+              <div class="entry-content">
+                <div class="entry-word">{{ entry.trigger }}</div>
+                <div class="entry-variants">{{ entry.expansion }}</div>
+              </div>
+              <div class="entry-actions">
+                <button class="icon-button" @click="editSnippetEntry(entry)" title="Edit">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 000-.354l-1.086-1.086zM11.189 6.25L9.75 4.81l-6.286 6.287a.25.25 0 00-.064.108l-.558 1.953 1.953-.558a.25.25 0 00.108-.064l6.286-6.286z"/>
+                  </svg>
+                </button>
+                <button class="icon-button delete" @click="deleteSnippetEntry(entry.id)" title="Delete">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M11 1.75V3h2.25a.75.75 0 010 1.5H2.75a.75.75 0 010-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75zM4.496 6.675a.75.75 0 10-1.492.15l.66 6.6A1.75 1.75 0 005.405 15h5.19c.9 0 1.652-.681 1.741-1.576l.66-6.6a.75.75 0 00-1.492-.149l-.66 6.6a.25.25 0 01-.249.225h-5.19a.25.25 0 01-.249-.225l-.66-6.6zM6.5 1.75V3h3V1.75a.25.25 0 00-.25-.25h-2.5a.25.25 0 00-.25.25z"/>
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -260,6 +296,39 @@
             </div>
             <label class="toggle">
               <input type="checkbox" v-model="screenSharingEnabled" @change="saveSettings" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">Show Flow bar at all times</div>
+              <div class="setting-hint">Display overlay indicator on screen</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" v-model="showOverlay" @change="saveSettings" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">Show app in Dock</div>
+              <div class="setting-hint">Display app icon in macOS Dock</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" v-model="showInDock" @change="saveSettings" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">Dictation sound effects</div>
+              <div class="setting-hint">Play beep when starting/stopping recording</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" v-model="dictationSoundEffects" @change="saveSettings" />
               <span class="toggle-slider"></span>
             </label>
           </div>
@@ -349,6 +418,9 @@ const apiKey = ref('')
 const hotkey = ref('Control+Space')
 const screenSharingEnabled = ref(true)
 const launchAtLogin = ref(false)
+const showOverlay = ref(true)
+const showInDock = ref(false)
+const dictationSoundEffects = ref(false)
 
 // Dictionary state
 interface DictionaryEntry {
@@ -481,6 +553,9 @@ async function loadSettings() {
   hotkey.value = config.hotkey || 'Control+Space'
   screenSharingEnabled.value = config.screenSharingEnabled !== false
   launchAtLogin.value = config.launchAtLogin === true
+  showOverlay.value = config.showOverlay !== false
+  showInDock.value = config.showInDock === true
+  dictationSoundEffects.value = config.dictationSoundEffects === true
 }
 
 /**
@@ -498,6 +573,9 @@ async function saveSettings() {
     hotkey: hotkey.value,
     screenSharingEnabled: screenSharingEnabled.value,
     launchAtLogin: launchAtLogin.value,
+    showOverlay: showOverlay.value,
+    showInDock: showInDock.value,
+    dictationSoundEffects: dictationSoundEffects.value,
   })
 
   console.log('Settings saved')
@@ -535,7 +613,16 @@ function editDictionaryEntry(entry: DictionaryEntry) {
   dictionaryEditId.value = entry.id
   dictionaryForm.value = { correctWord: entry.correctWord, incorrectVariants: [...entry.incorrectVariants] }
   dictionaryVariantsInput.value = entry.incorrectVariants.join(', ')
-  showDictionaryDialog.value = true
+}
+
+/**
+ * Cancel dictionary edit
+ */
+function cancelDictionaryEdit() {
+  dictionaryEditMode.value = false
+  dictionaryEditId.value = null
+  dictionaryForm.value = { correctWord: '', incorrectVariants: [] }
+  dictionaryVariantsInput.value = ''
 }
 
 /**
@@ -557,8 +644,7 @@ async function saveDictionaryEntry() {
   }
 
   if (!entry.correctWord || entry.incorrectVariants.length === 0) {
-    alert('Please fill in all fields')
-    return
+    return  // Button is disabled, but just in case
   }
 
   if (dictionaryEditMode.value && dictionaryEditId.value) {
@@ -568,27 +654,20 @@ async function saveDictionaryEntry() {
   }
 
   await loadDictionaryEntries()
-  closeDictionaryDialog()
+  cancelDictionaryEdit()
 }
 
 /**
  * Delete dictionary entry
  */
 async function deleteDictionaryEntry(id: string) {
-  if (!confirm('Are you sure you want to delete this entry?')) return
+  if (!confirm('Delete this dictionary entry?')) return
 
   const electronAPI = (window as any).electronAPI
   if (!electronAPI?.dictionaryDelete) return
 
   await electronAPI.dictionaryDelete(id)
   await loadDictionaryEntries()
-}
-
-/**
- * Close dictionary dialog
- */
-function closeDictionaryDialog() {
-  showDictionaryDialog.value = false
 }
 
 /**
@@ -618,7 +697,15 @@ function editSnippetEntry(entry: SnippetEntry) {
   snippetEditMode.value = true
   snippetEditId.value = entry.id
   snippetForm.value = { trigger: entry.trigger, expansion: entry.expansion }
-  showSnippetDialog.value = true
+}
+
+/**
+ * Cancel snippet edit
+ */
+function cancelSnippetEdit() {
+  snippetEditMode.value = false
+  snippetEditId.value = null
+  snippetForm.value = { trigger: '', expansion: '' }
 }
 
 /**
@@ -634,8 +721,7 @@ async function saveSnippetEntry() {
   }
 
   if (!entry.trigger || !entry.expansion) {
-    alert('Please fill in all fields')
-    return
+    return  // Button is disabled, but just in case
   }
 
   if (snippetEditMode.value && snippetEditId.value) {
@@ -645,27 +731,20 @@ async function saveSnippetEntry() {
   }
 
   await loadSnippetEntries()
-  closeSnippetDialog()
+  cancelSnippetEdit()
 }
 
 /**
  * Delete snippet entry
  */
 async function deleteSnippetEntry(id: string) {
-  if (!confirm('Are you sure you want to delete this snippet?')) return
+  if (!confirm('Delete this snippet?')) return
 
   const electronAPI = (window as any).electronAPI
   if (!electronAPI?.snippetsDelete) return
 
   await electronAPI.snippetsDelete(id)
   await loadSnippetEntries()
-}
-
-/**
- * Close snippet dialog
- */
-function closeSnippetDialog() {
-  showSnippetDialog.value = false
 }
 
 /**

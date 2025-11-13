@@ -45,13 +45,12 @@ export class HotkeyStateMachine extends EventEmitter {
     this.fnPressed = true
     this.fnPressStartTime = timestamp
 
-    // If Ctrl also pressed, this is Fn+Ctrl combination
+    // ONLY start recording if Ctrl is also pressed (Fn+Ctrl)
+    // Fn alone does NOTHING to avoid emoji picker interference
     if (this.ctrlPressed) {
       this.transitionTo(RecordingMode.STT_SCREEN_HOLD, 'fn_press', timestamp)
-    } else {
-      // Just Fn - STT only mode
-      this.transitionTo(RecordingMode.STT_ONLY_HOLD, 'fn_press', timestamp)
     }
+    // If just Fn alone: do nothing (ignore)
   }
 
   /**
