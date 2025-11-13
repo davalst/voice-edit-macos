@@ -12,6 +12,7 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, clipboard, Tray, Menu, nativeImage, desktopCapturer } from 'electron'
 import { join } from 'path'
 import { appendFileSync, existsSync, mkdirSync } from 'fs'
+import { exec } from 'child_process'
 import Store from 'electron-store'
 import { setupHotkeyManager } from './hotkey-manager'
 import { simulatePaste, copyToClipboard, getSelectedText, getFocusedAppName } from './clipboard-manager'
@@ -159,6 +160,26 @@ function updateTrayStatus(recording: boolean) {
 }
 
 /**
+ * Play system sound (macOS only)
+ */
+function playSound(soundName: 'Tink' | 'Pop') {
+  // Check if sound effects are enabled
+  const soundEffectsEnabled = store.get('dictationSoundEffects', false) as boolean
+  if (!soundEffectsEnabled) {
+    return
+  }
+
+  if (process.platform === 'darwin') {
+    const soundPath = `/System/Library/Sounds/${soundName}.aiff`
+    exec(`afplay "${soundPath}"`, (error) => {
+      if (error) {
+        console.error(`[Main] Failed to play sound ${soundName}:`, error.message)
+      }
+    })
+  }
+}
+
+/**
  * Initialize Wispr Flow-style native key monitoring
  */
 function initializeKeyMonitoring() {
@@ -186,6 +207,9 @@ function initializeKeyMonitoring() {
   stateMachine.on('recordingStarted', async (config: { mode: RecordingMode; enableScreenCapture: boolean; isToggleMode: boolean }) => {
     console.log('[Main] Recording started:', config.mode, config.enableScreenCapture ? '+ Screen' : '')
 
+    // Play start sound if enabled
+    playSound('Tink')
+
     // CRITICAL: Capture context BEFORE showing overlay to preserve cursor focus
     // 1. Get focused app name (for window-specific screen capture)
     // 2. Get selected text (uses Cmd+C, which briefly affects focus)
@@ -211,6 +235,9 @@ function initializeKeyMonitoring() {
 
   stateMachine.on('recordingStopped', () => {
     console.log('[Main] Recording stopped')
+
+    // Play stop sound if enabled
+    playSound('Pop')
 
     // Hide overlay
     overlayManager?.hide()
