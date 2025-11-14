@@ -160,18 +160,43 @@ function updateTrayStatus(recording: boolean) {
 }
 
 /**
- * Play system sound (macOS only)
+ * Play system sound (macOS only) with debouncing to prevent multiple beeps
  */
+let lastSoundTime = { Tink: 0, Pop: 0 }
+let isCurrentlyRecording = false
+let isPlayingSound = { Tink: false, Pop: false }
+
 function playSound(soundName: 'Tink' | 'Pop') {
+  console.log(`[Main] playSound() called with: ${soundName}`)
+
   // Check if sound effects are enabled
   const soundEffectsEnabled = store.get('dictationSoundEffects', false) as boolean
   if (!soundEffectsEnabled) {
+    console.log(`[Main] Sound effects disabled - skipping ${soundName}`)
     return
   }
 
+  // Prevent playing same sound if it's already playing
+  if (isPlayingSound[soundName]) {
+    console.log(`[Main] Skipping ${soundName} - already playing`)
+    return
+  }
+
+  // Debounce: Don't play same sound within 1000ms (prevents multiple beeps)
+  const now = Date.now()
+  if (now - lastSoundTime[soundName] < 1000) {
+    console.log(`[Main] Debouncing ${soundName} sound (too soon)`)
+    return
+  }
+  lastSoundTime[soundName] = now
+
   if (process.platform === 'darwin') {
+    console.log(`[Main] ▶️ Playing sound: ${soundName}`)
+    isPlayingSound[soundName] = true
     const soundPath = `/System/Library/Sounds/${soundName}.aiff`
     exec(`afplay "${soundPath}"`, (error) => {
+      isPlayingSound[soundName] = false
+      console.log(`[Main] ✅ Sound finished: ${soundName}`)
       if (error) {
         console.error(`[Main] Failed to play sound ${soundName}:`, error.message)
       }
@@ -207,8 +232,16 @@ function initializeKeyMonitoring() {
   stateMachine.on('recordingStarted', async (config: { mode: RecordingMode; enableScreenCapture: boolean; isToggleMode: boolean }) => {
     console.log('[Main] Recording started:', config.mode, config.enableScreenCapture ? '+ Screen' : '')
 
-    // Play start sound if enabled
-    playSound('Tink')
+    // Set recording flag FIRST, then play sound (prevents duplicate beeps from state transitions)
+    const wasRecording = isCurrentlyRecording
+    isCurrentlyRecording = true
+
+    // Only play start sound on first recording start, not state transitions
+    if (!wasRecording) {
+      playSound('Tink')
+    } else {
+      console.log('[Main] Skipping Tink - state transition (already recording)')
+    }
 
     // CRITICAL: Capture context BEFORE showing overlay to preserve cursor focus
     // 1. Get focused app name (for window-specific screen capture)
@@ -234,10 +267,11 @@ function initializeKeyMonitoring() {
   })
 
   stateMachine.on('recordingStopped', () => {
-    console.log('[Main] Recording stopped')
+    console.log('[Main] Recording stopped (from state machine)')
 
-    // Play stop sound if enabled
-    playSound('Pop')
+    // NOTE: Don't play Pop here - it's played by the IPC handler when renderer auto-stops
+    // This prevents duplicate beeps
+    isCurrentlyRecording = false
 
     // Hide overlay
     overlayManager?.hide()
@@ -399,9 +433,13 @@ ipcMain.on('recording-started', () => {
   updateTrayStatus(true)
 })
 
-// Stop recording
+// Stop recording (IPC from renderer when auto-stop triggers)
 ipcMain.on('recording-stopped', () => {
-  console.log('[Main] Recording stopped')
+  console.log('[Main] Recording stopped (from renderer IPC)')
+
+  // NOTE: Pop sound removed - only using Tink at start per user preference
+  isCurrentlyRecording = false
+
   updateTrayStatus(false)
 })
 
