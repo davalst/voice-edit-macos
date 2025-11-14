@@ -14,6 +14,7 @@
 // Key state tracking
 static bool fnKeyPressed = false;
 static bool ctrlKeyPressed = false;
+static bool cmdKeyPressed = false;
 static CFMachPortRef eventTap = NULL;
 static CFRunLoopSourceRef runLoopSource = NULL;
 
@@ -38,9 +39,13 @@ CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef 
   // Track Ctrl key state
   bool ctrlNowPressed = (flags & kCGEventFlagMaskControl) != 0;
 
+  // Track Command key state
+  bool cmdNowPressed = (flags & kCGEventFlagMaskCommand) != 0;
+
   // Detect state changes
   bool fnChanged = (fnNowPressed != fnKeyPressed);
   bool ctrlChanged = (ctrlNowPressed != ctrlKeyPressed);
+  bool cmdChanged = (cmdNowPressed != cmdKeyPressed);
 
   // CRITICAL FIX: Ignore arrow keys (123=left, 124=right, 125=down, 126=up)
   // Arrow keys with Fn pressed trigger Home/End/PageUp/PageDown, causing false Fn state changes
@@ -50,18 +55,21 @@ CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 
   // CRITICAL FIX: Only trigger on FlagsChanged events (modifier-only changes)
   // This prevents regular key presses from triggering false state changes
-  if (type == kCGEventFlagsChanged && (fnChanged || ctrlChanged)) {
+  if (type == kCGEventFlagsChanged && (fnChanged || ctrlChanged || cmdChanged)) {
     fnKeyPressed = fnNowPressed;
     ctrlKeyPressed = ctrlNowPressed;
+    cmdKeyPressed = cmdNowPressed;
 
     // Prepare event data for JavaScript
     auto callback = [](Napi::Env env, Napi::Function jsCallback, bool* data) {
       bool fn = data[0];
       bool ctrl = data[1];
+      bool cmd = data[2];
 
       Napi::Object eventObj = Napi::Object::New(env);
       eventObj.Set("fnPressed", Napi::Boolean::New(env, fn));
       eventObj.Set("ctrlPressed", Napi::Boolean::New(env, ctrl));
+      eventObj.Set("cmdPressed", Napi::Boolean::New(env, cmd));
       eventObj.Set("timestamp", Napi::Number::New(env, CFAbsoluteTimeGetCurrent()));
 
       jsCallback.Call({eventObj});
@@ -71,9 +79,10 @@ CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 
     // Send to JavaScript
     if (tsfn) {
-      bool* data = new bool[2];
+      bool* data = new bool[3];
       data[0] = fnKeyPressed;
       data[1] = ctrlKeyPressed;
+      data[2] = cmdKeyPressed;
       tsfn.NonBlockingCall(data, callback);
     }
 
@@ -153,6 +162,7 @@ Napi::Value StopMonitoring(const Napi::CallbackInfo& info) {
 
   fnKeyPressed = false;
   ctrlKeyPressed = false;
+  cmdKeyPressed = false;
 
   return Napi::Boolean::New(env, true);
 }
@@ -166,6 +176,7 @@ Napi::Value GetKeyStates(const Napi::CallbackInfo& info) {
   Napi::Object result = Napi::Object::New(env);
   result.Set("fnPressed", Napi::Boolean::New(env, fnKeyPressed));
   result.Set("ctrlPressed", Napi::Boolean::New(env, ctrlKeyPressed));
+  result.Set("cmdPressed", Napi::Boolean::New(env, cmdKeyPressed));
 
   return result;
 }

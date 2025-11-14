@@ -289,12 +289,14 @@ function initializeKeyMonitoring() {
   // Track previous key state to detect changes
   let previousFnState = false
   let previousCtrlState = false
+  let previousCmdState = false
 
   // Wire up key monitor to both state machine and gesture detector
-  keyMonitor.on('keyStateChange', (event: { fnPressed: boolean; ctrlPressed: boolean; timestamp: number }) => {
+  keyMonitor.on('keyStateChange', (event: { fnPressed: boolean; ctrlPressed: boolean; cmdPressed: boolean; timestamp: number }) => {
     console.log('[Main] Key state change:', {
       fn: event.fnPressed ? 'DOWN' : 'UP',
       ctrl: event.ctrlPressed ? 'DOWN' : 'UP',
+      cmd: event.cmdPressed ? 'DOWN' : 'UP',
       timestamp: event.timestamp
     })
 
@@ -323,12 +325,24 @@ function initializeKeyMonitoring() {
       }
       previousCtrlState = event.ctrlPressed
     }
+
+    // Detect Command key changes
+    if (event.cmdPressed !== previousCmdState) {
+      if (event.cmdPressed) {
+        console.log('[Main] → Command PRESSED')
+        stateMachine?.onCmdPress(event.timestamp)
+      } else {
+        console.log('[Main] → Command RELEASED')
+        stateMachine?.onCmdRelease(event.timestamp)
+      }
+      previousCmdState = event.cmdPressed
+    }
   })
 
   // Start monitoring
   const success = keyMonitor.start()
   if (success) {
-    console.log('[Main] ✅ Native key monitoring active (Fn + Fn+Ctrl gestures enabled)')
+    console.log('[Main] ✅ Native key monitoring active (Fn + Fn+Ctrl + Fn+Command gestures enabled)')
   } else {
     console.error('[Main] ❌ Failed to start native key monitoring')
     console.error('[Main] Please grant Accessibility permissions in System Preferences')

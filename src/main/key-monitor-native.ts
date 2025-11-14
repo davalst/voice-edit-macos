@@ -8,6 +8,7 @@ import path from 'path'
 interface KeyStates {
   fnPressed: boolean
   ctrlPressed: boolean
+  cmdPressed: boolean
 }
 
 interface KeyEvent extends KeyStates {
@@ -54,10 +55,14 @@ export class KeyMonitor extends EventEmitter {
         // Emit specific events for convenience
         if (event.fnPressed && event.ctrlPressed) {
           this.emit('fnCtrlPressed', event)
+        } else if (event.fnPressed && event.cmdPressed) {
+          this.emit('fnCmdPressed', event)
         } else if (event.fnPressed) {
           this.emit('fnPressed', event)
         } else if (event.ctrlPressed) {
           this.emit('ctrlPressed', event)
+        } else if (event.cmdPressed) {
+          this.emit('cmdPressed', event)
         } else {
           this.emit('allKeysReleased', event)
         }

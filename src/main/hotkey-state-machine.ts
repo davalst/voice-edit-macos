@@ -18,7 +18,7 @@ interface StateChangeEvent {
   from: RecordingMode
   to: RecordingMode
   timestamp: number
-  trigger: 'fn_press' | 'fn_release' | 'ctrl_press' | 'ctrl_release' | 'fn_double_tap' | 'fn_ctrl_double_tap' | 'manual_stop'
+  trigger: 'fn_press' | 'fn_release' | 'ctrl_press' | 'ctrl_release' | 'cmd_press' | 'cmd_release' | 'fn_double_tap' | 'fn_ctrl_double_tap' | 'manual_stop'
 }
 
 /**
@@ -28,10 +28,12 @@ export class HotkeyStateMachine extends EventEmitter {
   private currentState: RecordingMode = RecordingMode.IDLE
   private fnPressed: boolean = false
   private ctrlPressed: boolean = false
+  private cmdPressed: boolean = false
 
   // Track key press timing for hold detection
   private fnPressStartTime: number = 0
   private ctrlPressStartTime: number = 0
+  private cmdPressStartTime: number = 0
   private readonly MIN_HOLD_DURATION = 150 // ms - minimum hold to trigger recording
 
   constructor() {
@@ -111,6 +113,43 @@ export class HotkeyStateMachine extends EventEmitter {
     } else if (this.currentState === RecordingMode.STT_SCREEN_TOGGLE && !this.fnPressed) {
       // In toggle mode, only stop if both keys released
       this.transitionTo(RecordingMode.IDLE, 'ctrl_release', timestamp)
+    }
+  }
+
+  /**
+   * Handle Command key press
+   */
+  onCmdPress(timestamp: number) {
+    this.cmdPressed = true
+    this.cmdPressStartTime = timestamp
+
+    // If Fn already pressed, trigger STT+Screen mode (same as Ctrl for now)
+    if (this.fnPressed) {
+      this.transitionTo(RecordingMode.STT_SCREEN_HOLD, 'cmd_press', timestamp)
+    }
+  }
+
+  /**
+   * Handle Command key release
+   */
+  onCmdRelease(timestamp: number) {
+    const holdDuration = timestamp - this.cmdPressStartTime
+    this.cmdPressed = false
+
+    console.log(`[StateMachine] Cmd released after ${holdDuration.toFixed(0)}ms, current state: ${this.currentState}, fnPressed: ${this.fnPressed}`)
+
+    // Same logic as Ctrl release
+    if (this.currentState === RecordingMode.STT_SCREEN_HOLD) {
+      if (this.fnPressed) {
+        // Fn still held, downgrade to STT only mode
+        this.transitionTo(RecordingMode.STT_ONLY_HOLD, 'cmd_release', timestamp)
+      } else {
+        // Fn was already released, stop recording
+        this.transitionTo(RecordingMode.IDLE, 'cmd_release', timestamp)
+      }
+    } else if (this.currentState === RecordingMode.STT_SCREEN_TOGGLE && !this.fnPressed) {
+      // In toggle mode, only stop if both keys released
+      this.transitionTo(RecordingMode.IDLE, 'cmd_release', timestamp)
     }
   }
 
@@ -219,8 +258,10 @@ export class HotkeyStateMachine extends EventEmitter {
   reset() {
     this.fnPressed = false
     this.ctrlPressed = false
+    this.cmdPressed = false
     this.fnPressStartTime = 0
     this.ctrlPressStartTime = 0
+    this.cmdPressStartTime = 0
 
     if (this.currentState !== RecordingMode.IDLE) {
       this.transitionTo(RecordingMode.IDLE, 'manual_stop', Date.now())
