@@ -397,6 +397,17 @@
               <span class="toggle-slider"></span>
             </label>
           </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">Separate Keys for Commands</div>
+              <div class="setting-hint">Fn+Ctrl = Dictation | Fn+Command = Voice Commands</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" v-model="separateCommandKey" @change="saveSettings" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
         </div>
       </div>
 
@@ -486,6 +497,7 @@ const launchAtLogin = ref(false)
 const showOverlay = ref(true)
 const showInDock = ref(false)
 const dictationSoundEffects = ref(false)
+const separateCommandKey = ref(true)
 
 // Dictionary state
 interface DictionaryEntry {
@@ -623,6 +635,7 @@ async function loadSettings() {
   showOverlay.value = config.showOverlay !== false
   showInDock.value = config.showInDock === true
   dictationSoundEffects.value = config.dictationSoundEffects === true
+  separateCommandKey.value = config.separateCommandKey !== false
 }
 
 /**
@@ -643,6 +656,7 @@ async function saveSettings() {
     showOverlay: showOverlay.value,
     showInDock: showInDock.value,
     dictationSoundEffects: dictationSoundEffects.value,
+    separateCommandKey: separateCommandKey.value,
   })
 
   console.log('Settings saved')

@@ -24,6 +24,7 @@ export interface AppConfig {
   showOverlay: boolean
   showInDock: boolean
   dictationSoundEffects: boolean
+  separateCommandKey: boolean
   dictionary: DictionaryEntry[]
   snippets: SnippetEntry[]
 }

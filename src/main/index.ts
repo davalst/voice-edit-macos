@@ -328,12 +328,16 @@ function initializeKeyMonitoring() {
 
     // Detect Command key changes
     if (event.cmdPressed !== previousCmdState) {
-      if (event.cmdPressed) {
-        console.log('[Main] → Command PRESSED')
-        stateMachine?.onCmdPress(event.timestamp)
-      } else {
-        console.log('[Main] → Command RELEASED')
-        stateMachine?.onCmdRelease(event.timestamp)
+      // Only process Command key if separateCommandKey setting is ON
+      const separateCommandKey = store.get('separateCommandKey', true) as boolean
+      if (separateCommandKey) {
+        if (event.cmdPressed) {
+          console.log('[Main] → Command PRESSED')
+          stateMachine?.onCmdPress(event.timestamp)
+        } else {
+          console.log('[Main] → Command RELEASED')
+          stateMachine?.onCmdRelease(event.timestamp)
+        }
       }
       previousCmdState = event.cmdPressed
     }
