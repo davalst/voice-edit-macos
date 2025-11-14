@@ -60,6 +60,13 @@ const api = {
   },
 
   /**
+   * Text-to-speech using native macOS say command
+   */
+  speak: (text: string) => {
+    ipcRenderer.send('speak-text', text)
+  },
+
+  /**
    * Platform info
    */
   platform: process.platform,

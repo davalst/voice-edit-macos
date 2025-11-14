@@ -63,26 +63,10 @@ export function useVoiceEdit() {
       })
 
       // Setup event listeners
-      geminiAdapter.on('setupComplete', async () => {
+      geminiAdapter.on('setupComplete', () => {
         console.log('[VoiceEdit] ✅ Connected to Gemini')
         electronAPI?.log?.('[Renderer] ✅ Gemini connected successfully')
         isConnected.value = true
-
-        // Log available TTS voices for debugging
-        if ('speechSynthesis' in window) {
-          let voices = window.speechSynthesis.getVoices()
-          if (voices.length === 0) {
-            await new Promise<void>((resolve) => {
-              window.speechSynthesis.onvoiceschanged = () => {
-                voices = window.speechSynthesis.getVoices()
-                resolve()
-              }
-              setTimeout(resolve, 1000)
-            })
-          }
-          console.log('[VoiceEdit] 🔊 Available TTS voices:', voices.map(v => `${v.name} (${v.lang})`).join(', '))
-        }
-
         // Ready - waiting for user to press hotkey to start recording
       })
 
@@ -518,56 +502,14 @@ export function useVoiceEdit() {
   }
 
   /**
-   * Speak text using browser TTS with premium macOS voice (Samantha Enhanced)
-   * Uses Apple's flagship voice for high-quality, natural-sounding speech
+   * Speak text using native macOS say command with Samantha voice
+   * This is more reliable than Web Speech API in Electron
    */
   async function speakText(text: string) {
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(text)
-
-      // Wait for voices to load (Web Speech API requires this)
-      let voices = window.speechSynthesis.getVoices()
-
-      // If voices not loaded yet, wait for them
-      if (voices.length === 0) {
-        await new Promise<void>((resolve) => {
-          window.speechSynthesis.onvoiceschanged = () => {
-            voices = window.speechSynthesis.getVoices()
-            resolve()
-          }
-          // Timeout after 1 second if voices don't load
-          setTimeout(resolve, 1000)
-        })
-      }
-
-      console.log('[VoiceEdit] 🔊 Available voices:', voices.map(v => v.name).join(', '))
-
-      // Select premium macOS voice (Samantha Enhanced - Apple's flagship voice)
-      const premiumVoice = voices.find(
-        (v) =>
-          v.name === 'Samantha (Enhanced)' || // Best quality female voice
-          v.name === 'Samantha' || // Fallback to standard Samantha
-          v.name === 'Ava (Premium)' || // Alternative premium voice
-          v.name === 'Ava', // Fallback to standard Ava
-      )
-
-      if (premiumVoice) {
-        utterance.voice = premiumVoice
-        console.log('[VoiceEdit] 🔊 Using premium voice:', premiumVoice.name)
-      } else {
-        console.log('[VoiceEdit] ⚠️ Premium voice not found, using default')
-      }
-
-      // Optimize for natural, clear speech
-      utterance.rate = 1.0 // Natural speed
-      utterance.pitch = 1.0 // Natural pitch
-      utterance.volume = 0.9 // Slightly louder for clarity
-
-      window.speechSynthesis.speak(utterance)
-      console.log('[VoiceEdit] 🔊 Speaking (browser TTS):', text)
-    } else {
-      console.warn('[VoiceEdit] Speech synthesis not supported')
-    }
+    console.log('[VoiceEdit] 🔊 Speaking with Samantha voice (native macOS):', text)
+    // Use native macOS say command via IPC to main process
+    // This bypasses Web Speech API limitations in Electron
+    electronAPI?.speak?.(text)
   }
 
   /**

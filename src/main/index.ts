@@ -500,6 +500,24 @@ ipcMain.on('paste-text', (_event, text: string) => {
   }, 50)
 })
 
+// Speak text using native macOS say command with Samantha voice
+ipcMain.on('speak-text', (_event, text: string) => {
+  console.log('[Main] Speaking text with Samantha voice:', text.substring(0, 50) + '...')
+
+  if (process.platform === 'darwin') {
+    // Use native macOS say command with Samantha voice (premium quality)
+    // Escape quotes in text to prevent command injection
+    const escapedText = text.replace(/"/g, '\\"')
+    exec(`say -v Samantha "${escapedText}"`, (error) => {
+      if (error) {
+        console.error('[Main] Failed to speak text:', error.message)
+      } else {
+        console.log('[Main] ✅ Finished speaking')
+      }
+    })
+  }
+})
+
 // Get clipboard content (for debugging)
 ipcMain.handle('get-clipboard', () => {
   return clipboard.readText()
