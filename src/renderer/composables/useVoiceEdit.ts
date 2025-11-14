@@ -451,11 +451,76 @@ export function useVoiceEdit() {
   }
 
   /**
+   * Apply dictionary corrections to text
+   * Replaces incorrect word variants with correct words
+   */
+  async function applyDictionary(text: string): Promise<string> {
+    try {
+      const dictionary = await electronAPI?.dictionaryGetAll?.()
+      if (!dictionary || dictionary.length === 0) {
+        return text
+      }
+
+      let processedText = text
+      for (const entry of dictionary) {
+        // Replace each incorrect variant with the correct word (case-insensitive)
+        for (const incorrectWord of entry.incorrectVariants) {
+          const regex = new RegExp(`\\b${incorrectWord}\\b`, 'gi')
+          processedText = processedText.replace(regex, entry.correctWord)
+        }
+      }
+
+      if (processedText !== text) {
+        console.log('[VoiceEdit] 📖 Dictionary applied:', { original: text, corrected: processedText })
+      }
+
+      return processedText
+    } catch (error) {
+      console.error('[VoiceEdit] Dictionary error:', error)
+      return text
+    }
+  }
+
+  /**
+   * Apply snippet expansions to text
+   * Replaces trigger phrases with their expansions
+   */
+  async function applySnippets(text: string): Promise<string> {
+    try {
+      const snippets = await electronAPI?.snippetsGetAll?.()
+      if (!snippets || snippets.length === 0) {
+        return text
+      }
+
+      let processedText = text
+      for (const snippet of snippets) {
+        // Replace trigger with expansion (case-insensitive, whole word match)
+        const regex = new RegExp(`\\b${snippet.trigger}\\b`, 'gi')
+        processedText = processedText.replace(regex, snippet.expansion)
+      }
+
+      if (processedText !== text) {
+        console.log('[VoiceEdit] ✂️ Snippets applied:', { original: text, expanded: processedText })
+      }
+
+      return processedText
+    } catch (error) {
+      console.error('[VoiceEdit] Snippets error:', error)
+      return text
+    }
+  }
+
+  /**
    * Paste text at cursor in active application
+   * Applies dictionary and snippets before pasting
    */
   async function pasteText(text: string) {
-    electronAPI?.pasteText(text)
-    console.log('[VoiceEdit] ✅ Pasted:', text.substring(0, 50))
+    // Apply dictionary corrections and snippet expansions
+    let processedText = await applyDictionary(text)
+    processedText = await applySnippets(processedText)
+
+    electronAPI?.pasteText(processedText)
+    console.log('[VoiceEdit] ✅ Pasted:', processedText.substring(0, 50))
   }
 
   /**
