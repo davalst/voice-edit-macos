@@ -30,6 +30,7 @@ export function useVoiceEdit() {
   const focusedAppName = ref('')
   const isProcessing = ref(false) // Guard to prevent duplicate processing
   const currentMode = ref<RecordingMode>(RecordingMode.IDLE)
+  const routeToCommand = ref(false) // true = Fn+Command (commands), false = Fn+Ctrl (dictation/AI classifier)
 
   // Services
   let geminiAdapter: GeminiLiveSDKAdapter | null = null
@@ -166,6 +167,7 @@ export function useVoiceEdit() {
       currentMode.value = config.mode
       selectedText.value = config.selectedText || ''
       focusedAppName.value = config.focusedAppName || ''
+      routeToCommand.value = config.routeToCommand // Store routing flag for context message
 
       console.log('[VoiceEdit] 📤 Recording config:')
       console.log('  - Mode:', config.mode)
@@ -260,8 +262,29 @@ export function useVoiceEdit() {
       electronAPI?.log?.(`[Renderer] Silence detected - sending context + turnComplete`)
 
       try {
-        // Build MINIMAL context message (exactly like Ebben POC)
-        const contextMessage = `Focus text: "${selectedText.value}"`
+        // Build context message based on routing mode
+        let contextMessage: string
+
+        if (routeToCommand.value) {
+          // MODE 1: Fn+Command = Voice Commands (use <INPUT> tags for AI to process)
+          if (selectedText.value) {
+            contextMessage = `<INPUT>${selectedText.value}</INPUT>`
+            console.log('[VoiceEdit] 🎯 COMMAND MODE: Wrapping selected text in <INPUT> tags')
+          } else {
+            // No selected text - treat as dictation
+            contextMessage = `<DICTATION_MODE>`
+            console.log('[VoiceEdit] 🎯 COMMAND MODE: No selection, using dictation')
+          }
+        } else {
+          // MODE 2: Fn+Ctrl = Dictation (AI classifier will decide)
+          if (selectedText.value) {
+            contextMessage = `Focus text: "${selectedText.value}"`
+            console.log('[VoiceEdit] 📝 DICTATION MODE: Using AI classifier with context')
+          } else {
+            contextMessage = `<DICTATION_MODE>`
+            console.log('[VoiceEdit] 📝 DICTATION MODE: Pure transcription')
+          }
+        }
 
         console.log('[VoiceEdit] 📤 Sending context:', contextMessage.substring(0, 150))
         electronAPI?.log?.(`[Renderer] Context: "${contextMessage.substring(0, 150)}"`)
