@@ -63,10 +63,26 @@ export function useVoiceEdit() {
       })
 
       // Setup event listeners
-      geminiAdapter.on('setupComplete', () => {
+      geminiAdapter.on('setupComplete', async () => {
         console.log('[VoiceEdit] ✅ Connected to Gemini')
         electronAPI?.log?.('[Renderer] ✅ Gemini connected successfully')
         isConnected.value = true
+
+        // Log available TTS voices for debugging
+        if ('speechSynthesis' in window) {
+          let voices = window.speechSynthesis.getVoices()
+          if (voices.length === 0) {
+            await new Promise<void>((resolve) => {
+              window.speechSynthesis.onvoiceschanged = () => {
+                voices = window.speechSynthesis.getVoices()
+                resolve()
+              }
+              setTimeout(resolve, 1000)
+            })
+          }
+          console.log('[VoiceEdit] 🔊 Available TTS voices:', voices.map(v => `${v.name} (${v.lang})`).join(', '))
+        }
+
         // Ready - waiting for user to press hotkey to start recording
       })
 
@@ -509,8 +525,24 @@ export function useVoiceEdit() {
     if ('speechSynthesis' in window) {
       const utterance = new SpeechSynthesisUtterance(text)
 
+      // Wait for voices to load (Web Speech API requires this)
+      let voices = window.speechSynthesis.getVoices()
+
+      // If voices not loaded yet, wait for them
+      if (voices.length === 0) {
+        await new Promise<void>((resolve) => {
+          window.speechSynthesis.onvoiceschanged = () => {
+            voices = window.speechSynthesis.getVoices()
+            resolve()
+          }
+          // Timeout after 1 second if voices don't load
+          setTimeout(resolve, 1000)
+        })
+      }
+
+      console.log('[VoiceEdit] 🔊 Available voices:', voices.map(v => v.name).join(', '))
+
       // Select premium macOS voice (Samantha Enhanced - Apple's flagship voice)
-      const voices = window.speechSynthesis.getVoices()
       const premiumVoice = voices.find(
         (v) =>
           v.name === 'Samantha (Enhanced)' || // Best quality female voice
@@ -522,6 +554,8 @@ export function useVoiceEdit() {
       if (premiumVoice) {
         utterance.voice = premiumVoice
         console.log('[VoiceEdit] 🔊 Using premium voice:', premiumVoice.name)
+      } else {
+        console.log('[VoiceEdit] ⚠️ Premium voice not found, using default')
       }
 
       // Optimize for natural, clear speech
