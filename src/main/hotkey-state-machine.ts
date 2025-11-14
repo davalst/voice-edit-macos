@@ -215,7 +215,8 @@ export class HotkeyStateMachine extends EventEmitter {
       this.emit('recordingStarted', {
         mode: newState,
         enableScreenCapture: newState === RecordingMode.STT_SCREEN_HOLD || newState === RecordingMode.STT_SCREEN_TOGGLE,
-        isToggleMode: newState === RecordingMode.STT_ONLY_TOGGLE || newState === RecordingMode.STT_SCREEN_TOGGLE
+        isToggleMode: newState === RecordingMode.STT_ONLY_TOGGLE || newState === RecordingMode.STT_SCREEN_TOGGLE,
+        routeToCommand: this.cmdPressed && !this.ctrlPressed // Fn+Command = true, Fn+Ctrl = false
       })
     } else {
       this.emit('recordingStopped', event)

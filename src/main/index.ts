@@ -235,8 +235,8 @@ function initializeKeyMonitoring() {
   })
 
   // Wire up state machine to renderer + overlay
-  stateMachine.on('recordingStarted', async (config: { mode: RecordingMode; enableScreenCapture: boolean; isToggleMode: boolean }) => {
-    console.log('[Main] Recording started:', config.mode, config.enableScreenCapture ? '+ Screen' : '')
+  stateMachine.on('recordingStarted', async (config: { mode: RecordingMode; enableScreenCapture: boolean; isToggleMode: boolean; routeToCommand: boolean }) => {
+    console.log('[Main] Recording started:', config.mode, config.enableScreenCapture ? '+ Screen' : '', config.routeToCommand ? '(Command)' : '(Dictation)')
 
     // Set recording flag FIRST, then play sound (prevents duplicate beeps from state transitions)
     const wasRecording = isCurrentlyRecording
@@ -265,6 +265,7 @@ function initializeKeyMonitoring() {
       mode: config.mode,
       enableScreenCapture: config.enableScreenCapture,
       isToggleMode: config.isToggleMode,
+      routeToCommand: config.routeToCommand,
       selectedText,
       focusedAppName
     })

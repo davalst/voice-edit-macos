@@ -20,6 +20,7 @@ export interface RecordingStartEvent {
   mode: RecordingMode
   enableScreenCapture: boolean
   isToggleMode: boolean
+  routeToCommand: boolean    // true = Fn+Command (commands), false = Fn+Ctrl (dictation)
   selectedText: string
   focusedAppName: string
 }

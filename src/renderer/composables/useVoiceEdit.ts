@@ -170,6 +170,7 @@ export function useVoiceEdit() {
       console.log('[VoiceEdit] 📤 Recording config:')
       console.log('  - Mode:', config.mode)
       console.log('  - Screen capture:', config.enableScreenCapture)
+      console.log('  - Route to command:', config.routeToCommand, config.routeToCommand ? '(Fn+Command)' : '(Fn+Ctrl - AI classifier)')
       console.log('  - Selected text:', selectedText.value?.substring(0, 100) || '(none)')
       console.log('  - Focused app:', focusedAppName.value)
 
@@ -212,6 +213,7 @@ export function useVoiceEdit() {
       mode: RecordingMode.STT_SCREEN_HOLD,
       enableScreenCapture: true,
       isToggleMode: false,
+      routeToCommand: false,  // Legacy mode defaults to dictation (AI classifier)
       selectedText: preCapturedText || '',
       focusedAppName: appName || ''
     }
