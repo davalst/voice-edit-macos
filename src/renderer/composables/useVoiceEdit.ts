@@ -169,10 +169,12 @@ export function useVoiceEdit() {
       focusedAppName.value = config.focusedAppName || ''
       routeToCommand.value = config.routeToCommand // Store routing flag for context message
 
+      console.log('[VoiceEdit] ===== TRACE: startRecordingWithMode called =====')
+      console.log('[VoiceEdit] TRACE: Full config object:', JSON.stringify(config, null, 2))
       console.log('[VoiceEdit] 📤 Recording config:')
       console.log('  - Mode:', config.mode)
       console.log('  - Screen capture:', config.enableScreenCapture)
-      console.log('  - Route to command:', config.routeToCommand, config.routeToCommand ? '(Fn+Command)' : '(Fn+Ctrl - AI classifier)')
+      console.log('  - Route to command:', config.routeToCommand, config.routeToCommand ? '(Fn+Command)' : '(Fn+Ctrl - dictation)')
       console.log('  - Selected text:', selectedText.value?.substring(0, 100) || '(none)')
       console.log('  - Focused app:', focusedAppName.value)
 
@@ -202,12 +204,19 @@ export function useVoiceEdit() {
       await startAudioRecording()
 
       // CRITICAL: Send context immediately to prevent Gemini from responding too early
+      console.log('[VoiceEdit] ===== TRACE: About to send context to Gemini =====')
+      console.log('[VoiceEdit] TRACE: config.routeToCommand =', config.routeToCommand)
+      console.log('[VoiceEdit] TRACE: selectedText.value =', selectedText.value ? `"${selectedText.value.substring(0, 50)}..."` : '(empty)')
+
       if (config.routeToCommand) {
+        console.log('[VoiceEdit] TRACE: ✅ BRANCH: Fn+Command mode (routeToCommand = true)')
         // Fn+Command mode - ALWAYS command processing
         if (selectedText.value) {
+          console.log('[VoiceEdit] TRACE: ✅ BRANCH: Has selection - sending <INPUT> tags')
           // With selected text: send <INPUT> tags for command processing on text
           console.log('[VoiceEdit] 🎯 Fn+Command mode: Sending <INPUT> context immediately')
           const contextMessage = `<INPUT>${selectedText.value}</INPUT>`
+          console.log('[VoiceEdit] TRACE: Context message:', contextMessage.substring(0, 200))
           geminiAdapter?.sendClientContent({
             turns: [{ text: contextMessage }],
             turnComplete: false, // Don't trigger response yet - wait for audio
@@ -215,9 +224,9 @@ export function useVoiceEdit() {
           console.log('[VoiceEdit] 📤 Sent context:', contextMessage.substring(0, 150))
           electronAPI?.log?.(`[Renderer] Sent <INPUT> context: "${contextMessage.substring(0, 100)}"`)
         } else {
+          console.log('[VoiceEdit] TRACE: ✅ BRANCH: NO selection - sending <COMMAND_MODE_NO_SELECTION>')
           // NO selection: Commands can still work using screen/video context
           // Examples: "What's on screen?", "Write a paragraph about AI", etc.
-          // Send empty INPUT tags or a marker to indicate command mode without text
           console.log('[VoiceEdit] 🎯 Fn+Command mode (no selection): Command mode using screen context')
           geminiAdapter?.sendClientContent({
             turns: [{ text: '<COMMAND_MODE_NO_SELECTION>' }],
@@ -227,6 +236,8 @@ export function useVoiceEdit() {
           electronAPI?.log?.('[Renderer] Sent command mode marker (no selection)')
         }
       } else {
+        console.log('[VoiceEdit] TRACE: ✅ BRANCH: Fn+Ctrl mode (routeToCommand = false)')
+        console.log('[VoiceEdit] TRACE: ✅ BRANCH: Sending <DICTATION_MODE> (ignoring selection)')
         // Fn+Ctrl mode: Always pure STT transcription
         console.log('[VoiceEdit] 📝 Fn+Ctrl mode: Sending <DICTATION_MODE> immediately')
         geminiAdapter?.sendClientContent({
@@ -236,6 +247,8 @@ export function useVoiceEdit() {
         console.log('[VoiceEdit] 📤 Sent <DICTATION_MODE>')
         electronAPI?.log?.('[Renderer] Sent <DICTATION_MODE>')
       }
+
+      console.log('[VoiceEdit] ===== TRACE: Context sending complete =====')
     } catch (error: any) {
       console.error('[VoiceEdit] Failed to start recording:', error.message)
       isProcessing.value = false
