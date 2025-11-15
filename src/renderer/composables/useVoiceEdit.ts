@@ -282,7 +282,7 @@ export function useVoiceEdit() {
         let skipContextSend = false // Don't re-send if already sent at recording start
 
         if (routeToCommand.value) {
-          // MODE 1: Fn+Command = Voice Commands (use <INPUT> tags for AI to process)
+          // MODE 1: Fn+Command = Voice Commands (deterministic - ALWAYS treat audio as command)
           if (selectedText.value) {
             // Context already sent at recording start - just trigger turnComplete
             skipContextSend = true
@@ -293,14 +293,10 @@ export function useVoiceEdit() {
             console.log('[VoiceEdit] 🎯 COMMAND MODE: No selection, using dictation')
           }
         } else {
-          // MODE 2: Fn+Ctrl = Dictation (AI classifier will decide)
-          if (selectedText.value) {
-            contextMessage = `Focus text: "${selectedText.value}"`
-            console.log('[VoiceEdit] 📝 DICTATION MODE: Using AI classifier with context')
-          } else {
-            contextMessage = `<DICTATION_MODE>`
-            console.log('[VoiceEdit] 📝 DICTATION MODE: Pure transcription')
-          }
+          // MODE 2: Fn+Ctrl = Dictation (deterministic - ALWAYS pure STT, NO commands)
+          // CRITICAL: Always use <DICTATION_MODE> to bypass AI classifier entirely
+          contextMessage = `<DICTATION_MODE>`
+          console.log('[VoiceEdit] 📝 DICTATION MODE: Pure STT (bypassing AI classifier)')
         }
 
         // Send context only if not already sent
