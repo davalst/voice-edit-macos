@@ -16,6 +16,7 @@ import { GeminiLiveSDKAdapter } from '../services/geminiLiveSDKAdapter'
 import { AudioRecorder } from '../lib/audio-recorder'
 import { VideoFrameCapturer } from '../lib/video-frame-capturer'
 import { useScreenCapture } from '../lib/use-screen-capture'
+import { BrowserSTT } from '../lib/browser-stt'
 import { VOICE_EDIT_SYSTEM_INSTRUCTION, VOICE_EDIT_RESPONSE_SCHEMA } from '../../../voice-edit-system-instruction'
 import { RecordingMode, RecordingStartEvent } from '../../shared/types'
 
@@ -36,6 +37,7 @@ export function useVoiceEdit() {
   let geminiAdapter: GeminiLiveSDKAdapter | null = null
   let audioRecorder: AudioRecorder | null = null
   let videoFrameCapturer: VideoFrameCapturer | null = null
+  let browserSTT: BrowserSTT | null = null
   const screenCapture = useScreenCapture()
 
   // Electron API
@@ -146,11 +148,6 @@ export function useVoiceEdit() {
    * Start voice recording with multi-mode support
    */
   async function startRecordingWithMode(config: RecordingStartEvent) {
-    if (!geminiAdapter || !isConnected.value) {
-      console.error('[VoiceEdit] Not connected to Gemini')
-      return
-    }
-
     // Guard: Prevent starting if already recording
     if (isRecording.value) {
       console.log('[VoiceEdit] Already recording, ignoring start request')
@@ -180,10 +177,31 @@ export function useVoiceEdit() {
 
       electronAPI?.log?.(`[Renderer] Starting ${config.mode}, screen=${config.enableScreenCapture}`)
 
-      // SECURITY: Start screen sharing ONLY if mode requires it AND in command mode
+      // ==================================================================
+      // ROUTING DECISION: Fn+Ctrl = Browser STT | Fn+Command = Gemini
+      // ==================================================================
+      if (!config.routeToCommand) {
+        // Fn+Ctrl: Pure dictation mode → Use browser's built-in Web Speech API
+        console.log('[VoiceEdit] 🎙️ Fn+Ctrl dictation mode: Using browser STT (NO Gemini, NO screen capture)')
+        electronAPI?.log?.('[Renderer] Fn+Ctrl: Using browser Web Speech API for pure STT')
+
+        await startBrowserSTT()
+        return
+      }
+
+      // Fn+Command: Command mode → Use Gemini Live API with screen capture
+      console.log('[VoiceEdit] 🤖 Fn+Command mode: Using Gemini with screen capture')
+      electronAPI?.log?.('[Renderer] Fn+Command: Using Gemini Live API')
+
+      if (!geminiAdapter || !isConnected.value) {
+        console.error('[VoiceEdit] Not connected to Gemini')
+        isRecording.value = false
+        return
+      }
+
+      // SECURITY: Start screen sharing ONLY in command mode
       // - Fn+Command (routeToCommand=true): Screen capture ON - Gemini needs visual context for commands
-      // - Fn+Ctrl (routeToCommand=false): Screen capture OFF - Pure STT, visual context would confuse Gemini
-      if (config.enableScreenCapture && config.routeToCommand && focusedAppName.value) {
+      if (config.enableScreenCapture && focusedAppName.value) {
         console.log('[VoiceEdit] Starting screen capture for target app:', focusedAppName.value)
         electronAPI?.log?.(`[Renderer] Screen capture enabled: ${focusedAppName.value}`)
 
@@ -194,62 +212,40 @@ export function useVoiceEdit() {
 
         await startScreenSharing(focusedAppName.value)
       } else {
-        const reason = !config.routeToCommand ? 'dictation mode - no screen needed' : 'STT-only mode'
-        console.log(`[VoiceEdit] Screen capture disabled (${reason})`)
-        electronAPI?.log?.(`[Renderer] Screen capture OFF (${reason})`)
+        console.log('[VoiceEdit] Screen capture disabled (STT-only mode)')
+        electronAPI?.log?.('[Renderer] Screen capture OFF (STT-only mode)')
       }
 
-      // Now start audio recording
+      // Now start audio recording (Gemini mode)
       await startAudioRecording()
 
       // CRITICAL: Send context immediately to prevent Gemini from responding too early
-      console.log('[VoiceEdit] ===== TRACE: About to send context to Gemini =====')
-      console.log('[VoiceEdit] TRACE: config.routeToCommand =', config.routeToCommand)
+      console.log('[VoiceEdit] ===== TRACE: Sending context to Gemini =====')
       console.log('[VoiceEdit] TRACE: selectedText.value =', selectedText.value ? `"${selectedText.value.substring(0, 50)}..."` : '(empty)')
 
-      if (config.routeToCommand) {
-        console.log('[VoiceEdit] TRACE: ✅ BRANCH: Fn+Command mode (routeToCommand = true)')
-        // Fn+Command mode - ALWAYS command processing
-        if (selectedText.value) {
-          console.log('[VoiceEdit] TRACE: ✅ BRANCH: Has selection - sending <INPUT> tags')
-          // With selected text: send <INPUT> tags for command processing on text
-          console.log('[VoiceEdit] 🎯 Fn+Command mode: Sending <INPUT> context immediately')
-          const contextMessage = `<INPUT>${selectedText.value}</INPUT>`
-          console.log('[VoiceEdit] TRACE: Context message:', contextMessage.substring(0, 200))
-          geminiAdapter?.sendClientContent({
-            turns: [{ text: contextMessage }],
-            turnComplete: false, // Don't trigger response yet - wait for audio
-          })
-          console.log('[VoiceEdit] 📤 Sent context:', contextMessage.substring(0, 150))
-          electronAPI?.log?.(`[Renderer] Sent <INPUT> context: "${contextMessage.substring(0, 100)}"`)
-        } else {
-          console.log('[VoiceEdit] TRACE: ✅ BRANCH: NO selection - sending <COMMAND_MODE_NO_SELECTION>')
-          // NO selection: Commands can still work using screen/video context
-          // Examples: "What's on screen?", "Write a paragraph about AI", etc.
-          console.log('[VoiceEdit] 🎯 Fn+Command mode (no selection): Command mode using screen context')
-          geminiAdapter?.sendClientContent({
-            turns: [{ text: '<COMMAND_MODE_NO_SELECTION>' }],
-            turnComplete: false,
-          })
-          console.log('[VoiceEdit] 📤 Sent <COMMAND_MODE_NO_SELECTION>')
-          electronAPI?.log?.('[Renderer] Sent command mode marker (no selection)')
-        }
-      } else {
-        console.log('[VoiceEdit] TRACE: ✅ BRANCH: Fn+Ctrl mode (routeToCommand = false)')
-        console.log('[VoiceEdit] TRACE: ✅ BRANCH: Sending <DICTATION_MODE> (ignoring selection)')
-        // Fn+Ctrl mode: Always pure STT transcription
-        console.log('[VoiceEdit] 📝 Fn+Ctrl mode: Sending <DICTATION_MODE> immediately')
+      if (selectedText.value) {
+        console.log('[VoiceEdit] 🎯 Fn+Command mode: Sending <INPUT> context immediately')
+        const contextMessage = `<INPUT>${selectedText.value}</INPUT>`
         geminiAdapter?.sendClientContent({
-          turns: [{ text: '<DICTATION_MODE>' }],
+          turns: [{ text: contextMessage }],
+          turnComplete: false, // Don't trigger response yet - wait for audio
+        })
+        console.log('[VoiceEdit] 📤 Sent context:', contextMessage.substring(0, 150))
+        electronAPI?.log?.(`[Renderer] Sent <INPUT> context: "${contextMessage.substring(0, 100)}"`)
+      } else {
+        console.log('[VoiceEdit] 🎯 Fn+Command mode (no selection): Command mode using screen context')
+        geminiAdapter?.sendClientContent({
+          turns: [{ text: '<COMMAND_MODE_NO_SELECTION>' }],
           turnComplete: false,
         })
-        console.log('[VoiceEdit] 📤 Sent <DICTATION_MODE>')
-        electronAPI?.log?.('[Renderer] Sent <DICTATION_MODE>')
+        console.log('[VoiceEdit] 📤 Sent <COMMAND_MODE_NO_SELECTION>')
+        electronAPI?.log?.('[Renderer] Sent command mode marker (no selection)')
       }
 
       console.log('[VoiceEdit] ===== TRACE: Context sending complete =====')
     } catch (error: any) {
       console.error('[VoiceEdit] Failed to start recording:', error.message)
+      isRecording.value = false
       isProcessing.value = false
     }
   }
@@ -345,9 +341,16 @@ export function useVoiceEdit() {
       return
     }
 
+    // Stop audio recorder (Gemini mode)
     if (audioRecorder) {
       audioRecorder.stop()
       audioRecorder = null
+    }
+
+    // Stop browser STT (Fn+Ctrl dictation mode)
+    if (browserSTT) {
+      browserSTT.stop()
+      browserSTT = null
     }
 
     isRecording.value = false
@@ -365,6 +368,87 @@ export function useVoiceEdit() {
     electronAPI?.notifyRecordingStopped()
 
     console.log('[VoiceEdit] Recording stopped, mode reset to IDLE')
+  }
+
+  /**
+   * Start browser-based STT (Fn+Ctrl dictation mode only)
+   * Uses browser's built-in Web Speech API - pure STT, no AI interpretation
+   */
+  async function startBrowserSTT() {
+    console.log('[VoiceEdit] 🎙️ Starting browser Web Speech API for pure STT')
+
+    // Check if browser supports Web Speech API
+    if (!BrowserSTT.isSupported()) {
+      console.error('[VoiceEdit] Browser does not support Web Speech API')
+      electronAPI?.log?.('[Renderer] ❌ Web Speech API not supported in browser')
+      isRecording.value = false
+      return
+    }
+
+    // Create new browser STT instance
+    browserSTT = new BrowserSTT({
+      language: 'en-US',
+      continuous: false, // One-shot dictation (stop after silence)
+      interimResults: true, // Show real-time results
+      maxAlternatives: 1,
+    })
+
+    // Handle transcription results
+    browserSTT.on('result', (result) => {
+      if (result.isFinal) {
+        console.log('[VoiceEdit] 📝 Final STT result:', result.transcript)
+        console.log('[VoiceEdit] Confidence:', result.confidence)
+      } else {
+        console.log('[VoiceEdit] ⏳ Interim STT result:', result.transcript)
+      }
+    })
+
+    // Handle final accumulated transcript
+    browserSTT.on('finalTranscript', async (result) => {
+      console.log('[VoiceEdit] ✅ Browser STT complete:', result.transcript)
+      electronAPI?.log?.(`[Renderer] STT result: "${result.transcript}"`)
+
+      // Paste the literal transcription with space
+      if (result.transcript) {
+        await pasteText(result.transcript + ' ')
+      }
+
+      // Auto-stop recording after paste
+      if (isRecording.value) {
+        console.log('[VoiceEdit] ✅ STT complete - auto-stopping recording')
+        stopRecording()
+      }
+    })
+
+    // Handle errors
+    browserSTT.on('error', (error) => {
+      console.error('[VoiceEdit] Browser STT error:', error.message)
+      electronAPI?.log?.(`[Renderer] ❌ STT error: ${error.message}`)
+
+      // Auto-stop on error
+      if (isRecording.value) {
+        stopRecording()
+      }
+    })
+
+    // Handle STT end
+    browserSTT.on('end', () => {
+      console.log('[VoiceEdit] Browser STT ended')
+
+      // Auto-stop if still recording
+      if (isRecording.value) {
+        console.log('[VoiceEdit] STT ended - auto-stopping recording')
+        stopRecording()
+      }
+    })
+
+    // Start browser STT
+    browserSTT.start()
+
+    // Notify main process
+    electronAPI?.notifyRecordingStarted()
+
+    console.log('[VoiceEdit] ✅ Browser STT started - speak when ready')
   }
 
   /**
@@ -632,6 +716,11 @@ export function useVoiceEdit() {
     if (geminiAdapter) {
       geminiAdapter.disconnect()
       geminiAdapter = null
+    }
+
+    if (browserSTT) {
+      browserSTT.abort()
+      browserSTT = null
     }
 
     isConnected.value = false
