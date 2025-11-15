@@ -212,11 +212,12 @@ export class HotkeyStateMachine extends EventEmitter {
 
     // Emit specific events for convenience
     if (newState !== RecordingMode.IDLE) {
+      const routeToCommand = this.cmdPressed && !this.ctrlPressed // Fn+Command = true, Fn+Ctrl = false
       this.emit('recordingStarted', {
         mode: newState,
-        enableScreenCapture: newState === RecordingMode.STT_SCREEN_HOLD || newState === RecordingMode.STT_SCREEN_TOGGLE,
+        enableScreenCapture: routeToCommand, // ONLY enable screen for command mode (Fn+Command), NOT dictation (Fn+Ctrl)
         isToggleMode: newState === RecordingMode.STT_ONLY_TOGGLE || newState === RecordingMode.STT_SCREEN_TOGGLE,
-        routeToCommand: this.cmdPressed && !this.ctrlPressed // Fn+Command = true, Fn+Ctrl = false
+        routeToCommand
       })
     } else {
       this.emit('recordingStopped', event)
