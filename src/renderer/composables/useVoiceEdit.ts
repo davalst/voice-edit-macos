@@ -200,6 +200,21 @@ export function useVoiceEdit() {
 
       // Now start audio recording
       await startAudioRecording()
+
+      // CRITICAL: For Fn+Command mode with selected text, send <INPUT> context IMMEDIATELY
+      // This prevents Gemini from transcribing the audio command before receiving context
+      if (config.routeToCommand && selectedText.value) {
+        console.log('[VoiceEdit] 🎯 Fn+Command mode: Sending <INPUT> context immediately')
+        const contextMessage = `<INPUT>${selectedText.value}</INPUT>`
+
+        geminiAdapter?.sendClientContent({
+          turns: [{ text: contextMessage }],
+          turnComplete: false, // Don't trigger response yet - wait for audio
+        })
+
+        console.log('[VoiceEdit] 📤 Sent context:', contextMessage.substring(0, 150))
+        electronAPI?.log?.(`[Renderer] Sent <INPUT> context: "${contextMessage.substring(0, 100)}"`)
+      }
     } catch (error: any) {
       console.error('[VoiceEdit] Failed to start recording:', error.message)
       isProcessing.value = false
@@ -263,13 +278,15 @@ export function useVoiceEdit() {
 
       try {
         // Build context message based on routing mode
-        let contextMessage: string
+        let contextMessage: string = '' // Initialize to empty string
+        let skipContextSend = false // Don't re-send if already sent at recording start
 
         if (routeToCommand.value) {
           // MODE 1: Fn+Command = Voice Commands (use <INPUT> tags for AI to process)
           if (selectedText.value) {
-            contextMessage = `<INPUT>${selectedText.value}</INPUT>`
-            console.log('[VoiceEdit] 🎯 COMMAND MODE: Wrapping selected text in <INPUT> tags')
+            // Context already sent at recording start - just trigger turnComplete
+            skipContextSend = true
+            console.log('[VoiceEdit] 🎯 COMMAND MODE: Context already sent, just sending turnComplete')
           } else {
             // No selected text - treat as dictation
             contextMessage = `<DICTATION_MODE>`
@@ -286,14 +303,17 @@ export function useVoiceEdit() {
           }
         }
 
-        console.log('[VoiceEdit] 📤 Sending context:', contextMessage.substring(0, 150))
-        electronAPI?.log?.(`[Renderer] Context: "${contextMessage.substring(0, 150)}"`)
+        // Send context only if not already sent
+        if (!skipContextSend) {
+          console.log('[VoiceEdit] 📤 Sending context:', contextMessage.substring(0, 150))
+          electronAPI?.log?.(`[Renderer] Context: "${contextMessage.substring(0, 150)}"`)
 
-        // Send context with turnComplete: false (don't trigger response yet)
-        geminiAdapter.sendClientContent({
-          turns: [{ text: contextMessage }],
-          turnComplete: false,
-        })
+          // Send context with turnComplete: false (don't trigger response yet)
+          geminiAdapter.sendClientContent({
+            turns: [{ text: contextMessage }],
+            turnComplete: false,
+          })
+        }
 
         // NOW send turnComplete to trigger Gemini response
         const sent = await geminiAdapter.sendTurnComplete()
