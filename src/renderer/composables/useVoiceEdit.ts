@@ -203,9 +203,9 @@ export function useVoiceEdit() {
 
       // CRITICAL: Send context immediately to prevent Gemini from responding too early
       if (config.routeToCommand) {
-        // Fn+Command mode
+        // Fn+Command mode - ALWAYS command processing
         if (selectedText.value) {
-          // With selected text: send <INPUT> tags
+          // With selected text: send <INPUT> tags for command processing on text
           console.log('[VoiceEdit] 🎯 Fn+Command mode: Sending <INPUT> context immediately')
           const contextMessage = `<INPUT>${selectedText.value}</INPUT>`
           geminiAdapter?.sendClientContent({
@@ -215,17 +215,19 @@ export function useVoiceEdit() {
           console.log('[VoiceEdit] 📤 Sent context:', contextMessage.substring(0, 150))
           electronAPI?.log?.(`[Renderer] Sent <INPUT> context: "${contextMessage.substring(0, 100)}"`)
         } else {
-          // No selection: send <DICTATION_MODE>
-          console.log('[VoiceEdit] 🎯 Fn+Command mode (no selection): Sending <DICTATION_MODE> immediately')
+          // NO selection: Commands can still work using screen/video context
+          // Examples: "What's on screen?", "Write a paragraph about AI", etc.
+          // Send empty INPUT tags or a marker to indicate command mode without text
+          console.log('[VoiceEdit] 🎯 Fn+Command mode (no selection): Command mode using screen context')
           geminiAdapter?.sendClientContent({
-            turns: [{ text: '<DICTATION_MODE>' }],
+            turns: [{ text: '<COMMAND_MODE_NO_SELECTION>' }],
             turnComplete: false,
           })
-          console.log('[VoiceEdit] 📤 Sent <DICTATION_MODE>')
-          electronAPI?.log?.('[Renderer] Sent <DICTATION_MODE>')
+          console.log('[VoiceEdit] 📤 Sent <COMMAND_MODE_NO_SELECTION>')
+          electronAPI?.log?.('[Renderer] Sent command mode marker (no selection)')
         }
       } else {
-        // Fn+Ctrl mode: Always pure STT
+        // Fn+Ctrl mode: Always pure STT transcription
         console.log('[VoiceEdit] 📝 Fn+Ctrl mode: Sending <DICTATION_MODE> immediately')
         geminiAdapter?.sendClientContent({
           turns: [{ text: '<DICTATION_MODE>' }],
