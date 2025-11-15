@@ -180,12 +180,10 @@ export function useVoiceEdit() {
 
       electronAPI?.log?.(`[Renderer] Starting ${config.mode}, screen=${config.enableScreenCapture}`)
 
-      // SECURITY: Start screen sharing ONLY if mode requires it
-      // - STT_SCREEN_HOLD: Fn+Ctrl held = screen ON
-      // - STT_SCREEN_TOGGLE: Double-tap Fn+Ctrl = screen ON
-      // - STT_ONLY_HOLD: Fn held = screen OFF
-      // - STT_ONLY_TOGGLE: Double-tap Fn = screen OFF
-      if (config.enableScreenCapture && focusedAppName.value) {
+      // SECURITY: Start screen sharing ONLY if mode requires it AND in command mode
+      // - Fn+Command (routeToCommand=true): Screen capture ON - Gemini needs visual context for commands
+      // - Fn+Ctrl (routeToCommand=false): Screen capture OFF - Pure STT, visual context would confuse Gemini
+      if (config.enableScreenCapture && config.routeToCommand && focusedAppName.value) {
         console.log('[VoiceEdit] Starting screen capture for target app:', focusedAppName.value)
         electronAPI?.log?.(`[Renderer] Screen capture enabled: ${focusedAppName.value}`)
 
@@ -196,8 +194,9 @@ export function useVoiceEdit() {
 
         await startScreenSharing(focusedAppName.value)
       } else {
-        console.log('[VoiceEdit] Screen capture disabled for this mode')
-        electronAPI?.log?.('[Renderer] Screen capture OFF (STT-only mode)')
+        const reason = !config.routeToCommand ? 'dictation mode - no screen needed' : 'STT-only mode'
+        console.log(`[VoiceEdit] Screen capture disabled (${reason})`)
+        electronAPI?.log?.(`[Renderer] Screen capture OFF (${reason})`)
       }
 
       // Now start audio recording
